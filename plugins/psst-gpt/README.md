@@ -1,10 +1,33 @@
 # PsstGPT
 
-Local Codex plugin for relaying prompts to the macOS ChatGPT desktop app.
+PsstGPT is a Codex plugin skill for relaying text prompts to the macOS ChatGPT desktop app in strict background mode.
 
-This plugin is intentionally separate from the Chrome-backed GPT Relay. It uses macOS Accessibility automation against `ChatGPT.app` (`com.openai.chat`) and stores its own app-session records in `~/.codex/psst-gpt/app-sessions.json`.
+For the full install guide, see the repository [README](../../README.md).
 
-Credit: PsstGPT is an independent desktop-app implementation, inspired by the original Chrome-backed [GPT Relay](https://github.com/Toolsai/GPT-Relay-Codex-Plugin-) by Prompt Case. Thanks to him for the relay concept and Codex plugin workflow.
+## Invoke
+
+Use the skill directly:
+
+```text
+$psst-gpt <task to send to the ChatGPT app>
+```
+
+In Codex CLI, `/psst-gpt` is not the supported command path. Use `$psst-gpt`, or run `/skills` and select `psst-gpt`.
+
+## Requirements
+
+- macOS.
+- ChatGPT desktop app installed and signed in.
+- One ChatGPT app window already open.
+- Accessibility permission for Codex and `/usr/bin/osascript`.
+
+## Cross-Platform Status
+
+PsstGPT is currently macOS-only.
+
+Windows support is feasible, but it needs a separate Windows UI Automation backend for the ChatGPT Windows app and must be tested for strict no-focus/no-popup behavior before release.
+
+Linux is not currently targeted because OpenAI's current desktop download page lists macOS and Windows desktop apps, not a Linux ChatGPT desktop app.
 
 ## Scope
 
@@ -19,14 +42,6 @@ Credit: PsstGPT is an independent desktop-app implementation, inspired by the or
 - Supports polling the active app conversation for a stored pending session.
 - Returns `finalDeliveryText` for verbatim Codex delivery.
 
-## Boundaries
-
-- macOS only.
-- Requires Accessibility permission.
-- Requires the user to already be signed in to the ChatGPT app.
-- Requires a ChatGPT app window to already be open somewhere on the desktop.
-- Strict background mode is enforced. `background: false` and window recovery are rejected.
-- Does not inspect cookies, local storage, app databases, passwords, or browser/session stores.
-- Does not currently automate model selection, file upload, Projects, GPT Apps, Create image artifact export, or Deep Research Markdown export.
-
 Unsupported options fail with `PSST_GPT_UNSUPPORTED_OPTION`.
+
+Credit: PsstGPT is an independent desktop-app implementation, inspired by the original Chrome-backed [GPT Relay](https://github.com/Toolsai/GPT-Relay-Codex-Plugin-) by Prompt Case. Thanks to him for the relay concept and Codex plugin workflow.
