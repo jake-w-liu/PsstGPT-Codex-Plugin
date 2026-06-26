@@ -1,0 +1,29 @@
+{
+  "name": "psst-gpt",
+  "version": "0.1.0",
+  "description": "Relay Codex prompts to the ChatGPT macOS desktop app and return the visible response.",
+  "repository": "https://github.com/jake-w-liu/PsstGPT-Codex-Plugin",
+  "author": {
+    "name": "PsstGPT Contributors"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "PsstGPT",
+    "shortDescription": "Send ChatGPT app tasks without focus stealing.",
+    "longDescription": "PsstGPT controls an already-open macOS ChatGPT desktop app window through strict-background Accessibility automation, sends text prompts into the app composer without foregrounding ChatGPT, waits for a stable visible assistant response, stores app-session metadata, and returns the response to Codex. It is an independent desktop-app implementation inspired by the original Chrome-backed GPT Relay by Prompt Case, but it does not use Chrome or the browser extension.",
+    "developerName": "PsstGPT Contributors",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive",
+      "Desktop Automation",
+      "Session Memory",
+      "Long Running Tasks"
+    ],
+    "defaultPrompt": [
+      "Ask ChatGPT with PsstGPT.",
+      "Send this to the ChatGPT app.",
+      "Continue in the active ChatGPT app chat."
+    ],
+    "brandColor": "#10A37F"
+  }
+}
