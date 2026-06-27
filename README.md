@@ -117,6 +117,14 @@ The ChatGPT app is not activated or brought to the foreground during the verifie
 
 For audit workflows, PsstGPT treats short acknowledgement-only final replies such as "I will audit..." as incomplete and sends a bounded follow-up that asks ChatGPT to perform the audit immediately. Exact-output marker prompts are excluded from this retry path.
 
+## Timeout Behavior
+
+The main ChatGPT response wait is unbounded by default for `run`, `continue`, `task`, `audit`, and `upload-audit`. PsstGPT now waits until the ChatGPT app finishes and the visible response stabilizes instead of cutting off long GPT Pro runs.
+
+Use `timeoutMs` only when you want to impose a cap yourself. `timeoutMs: 0` explicitly means no overall response timeout.
+
+`poll` is different: it is the bounded check-in path for pending sessions, so give it an explicit `timeoutMs` when you want a short or long polling window. File uploads still use `uploadTimeoutMs` for the native picker/upload wait, with a default of `120000` ms per file. Set `uploadTimeoutMs: 0` only if you also want the upload wait to be unbounded.
+
 ## Example Prompts
 
 ```text
@@ -169,6 +177,13 @@ node plugins/psst-gpt/scripts/psst_gpt.mjs \
 ```
 
 The upload audit workflow writes the returned visible response to `chatgpt-audit-response.md` and the structured result to `chatgpt-audit-result.json` inside the generated upload bundle directory.
+
+If you want to set an explicit cap instead of the default no-timeout behavior:
+
+```bash
+node plugins/psst-gpt/scripts/psst_gpt.mjs \
+  '{"command":"task","prompt":"debug audit the full codebase","root":"/absolute/path/to/project","timeoutMs":3600000}'
+```
 
 Inspect routing without sending:
 

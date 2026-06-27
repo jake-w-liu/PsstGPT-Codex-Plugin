@@ -333,6 +333,25 @@ test("calculateDirectAxRelayTimeoutMs budgets upload time per file", () => {
   );
 });
 
+test("normalizeOverallTimeoutMs treats non-positive values as disabled", () => {
+  assert.equal(__testing.normalizeOverallTimeoutMs(undefined), 0);
+  assert.equal(__testing.normalizeOverallTimeoutMs(null), 0);
+  assert.equal(__testing.normalizeOverallTimeoutMs(0, 1800000), 0);
+  assert.equal(__testing.normalizeOverallTimeoutMs(-1, 1800000), 0);
+  assert.equal(__testing.normalizeOverallTimeoutMs("60000", 0), 60000);
+});
+
+test("calculateDirectAxRelayTimeoutMs disables the child timeout when response waiting is unlimited", () => {
+  assert.equal(
+    __testing.calculateDirectAxRelayTimeoutMs({
+      timeoutMs: 0,
+      uploadTimeoutMs: 2000,
+      fileCount: 3,
+    }),
+    0
+  );
+});
+
 test("accessibility setup help text mentions the host app and helper binaries", () => {
   const helpText = __testing.buildAccessibilitySetupHelpText();
   const reminderText = __testing.buildAccessibilityReminderMessage();

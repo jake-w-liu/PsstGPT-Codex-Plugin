@@ -13,12 +13,15 @@ const APP_BUNDLE_ID = "com.openai.chat";
 const APP_NAME = "ChatGPT";
 const APP_PROCESS_NAME = "ChatGPT";
 const APP_SURFACE = "psst-gpt";
-const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000;
+// Main relay calls wait until ChatGPT finishes unless the caller supplies an
+// explicit response timeout. This avoids cutting off long GPT Pro runs.
+const DEFAULT_TIMEOUT_MS = 0;
 const DEFAULT_WAIT_CHUNK_MS = 90000;
 const POLL_INTERVAL_MS = 2000;
 const RESPONSE_STABLE_MS = 8000;
 const JXA_TIMEOUT_MS = 30000;
 const DEFAULT_BACKGROUND = true;
+const DEFAULT_UPLOAD_TIMEOUT_MS = 2 * 60 * 1000;
 // Rate-limit setup dialogs so missing permissions do not interrupt every run.
 const ACCESSIBILITY_REMINDER_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 const ACCESSIBILITY_REMINDER_DIALOG_TIMEOUT_MS = 25000;
@@ -294,7 +297,7 @@ export async function harnessPsstGPT(options = {}) {
     root,
     prompt,
     timeoutMs: options.timeoutMs ?? DEFAULT_HARNESS_TIMEOUT_MS,
-    uploadTimeoutMs: options.uploadTimeoutMs ?? 2 * 60 * 1000,
+    uploadTimeoutMs: options.uploadTimeoutMs ?? DEFAULT_UPLOAD_TIMEOUT_MS,
     maxSingleFileBytes: options.maxSingleFileBytes,
     maxAttachmentsPerMessage: options.maxAttachmentsPerMessage,
     statePath: options.statePath,
@@ -631,7 +634,7 @@ export async function uploadAuditPsstGPT(options = {}) {
     prompt: requestedPrompt,
     timeoutMs = DEFAULT_TIMEOUT_MS,
     waitChunkMs = DEFAULT_WAIT_CHUNK_MS,
-    uploadTimeoutMs = 2 * 60 * 1000,
+    uploadTimeoutMs = DEFAULT_UPLOAD_TIMEOUT_MS,
     maxAttachmentsPerMessage = DEFAULT_UPLOAD_MAX_ATTACHMENTS_PER_MESSAGE,
     statePath,
     relaySessionId = `app-${Date.now()}`,
@@ -884,7 +887,7 @@ async function relayPromptWithFileUploads({
   newChat = true,
   timeoutMs = DEFAULT_TIMEOUT_MS,
   waitChunkMs = DEFAULT_WAIT_CHUNK_MS,
-  uploadTimeoutMs = 2 * 60 * 1000,
+  uploadTimeoutMs = DEFAULT_UPLOAD_TIMEOUT_MS,
   statePath,
   relaySessionId,
   tags = [],
@@ -1049,9 +1052,12 @@ function calculateDirectAxRelayTimeoutMs({
   uploadTimeoutMs = 2 * 60 * 1000,
   fileCount = 0,
 } = {}) {
-  const normalizedResponseTimeoutMs = Math.max(1, Number(timeoutMs) || DEFAULT_TIMEOUT_MS);
-  const normalizedUploadTimeoutMs = Math.max(1, Number(uploadTimeoutMs) || 2 * 60 * 1000);
+  const normalizedResponseTimeoutMs = normalizeOverallTimeoutMs(timeoutMs, DEFAULT_TIMEOUT_MS);
+  const normalizedUploadTimeoutMs = normalizeOverallTimeoutMs(uploadTimeoutMs, DEFAULT_UPLOAD_TIMEOUT_MS);
   const normalizedFileCount = Math.max(1, Number(fileCount) || 0);
+  if (normalizedResponseTimeoutMs === 0 || normalizedUploadTimeoutMs === 0) {
+    return 0;
+  }
   return normalizedResponseTimeoutMs + (normalizedUploadTimeoutMs * normalizedFileCount) + 30000;
 }
 
@@ -1760,12 +1766,15 @@ async function waitForAppAssistantResponseInChunks({
   background,
   onPending,
 }) {
+  const normalizedTimeoutMs = normalizeOverallTimeoutMs(timeoutMs, DEFAULT_TIMEOUT_MS);
+  const normalizedWaitChunkMs = normalizePositiveDurationMs(waitChunkMs, DEFAULT_WAIT_CHUNK_MS);
   const started = Date.now();
   let lastPending = null;
 
-  while (Date.now() - started < timeoutMs) {
-    const remainingMs = timeoutMs - (Date.now() - started);
-    const chunkMs = Math.max(1, Math.min(waitChunkMs ?? DEFAULT_WAIT_CHUNK_MS, remainingMs));
+  while (normalizedTimeoutMs === 0 || Date.now() - started < normalizedTimeoutMs) {
+    const elapsedMs = Date.now() - started;
+    const remainingMs = normalizedTimeoutMs === 0 ? normalizedWaitChunkMs : normalizedTimeoutMs - elapsedMs;
+    const chunkMs = Math.max(1, Math.min(normalizedWaitChunkMs, remainingMs));
     const result = await waitForAppAssistantResponse({
       prompt,
       timeoutMs: chunkMs,
@@ -1802,12 +1811,13 @@ async function waitForAppAssistantResponse({
   allowPending,
   background,
 }) {
+  const normalizedTimeoutMs = normalizeOverallTimeoutMs(timeoutMs, DEFAULT_TIMEOUT_MS);
   const start = Date.now();
   let lastState = null;
   let lastAssistantText = "";
   let lastChangedAt = Date.now();
 
-  while (Date.now() - start < timeoutMs) {
+  while (normalizedTimeoutMs === 0 || Date.now() - start < normalizedTimeoutMs) {
     await sleep(POLL_INTERVAL_MS);
     const state = await readPsstGPTState({
       background,
@@ -2267,7 +2277,12 @@ function dispatch(action, payload) {
   }
   if (action === "waitForUploadedFile") {
     return withChatGPTApp({ background: payload.background !== false }, function(context) {
-      return waitForUploadedFileVisible(context.window, String(payload.fileName || ""), Number(payload.timeoutMs) || 120000);
+      var parsedTimeoutMs = Number(payload.timeoutMs);
+      return waitForUploadedFileVisible(
+        context.window,
+        String(payload.fileName || ""),
+        isFinite(parsedTimeoutMs) ? parsedTimeoutMs : 120000
+      );
     });
   }
   fail("PSST_GPT_BRIDGE_UNKNOWN_ACTION", "Unknown ChatGPT app bridge action: " + action);
@@ -2614,12 +2629,18 @@ function waitForUploadMenuItem(process, timeoutMs) {
 }
 
 function waitForUploadedFileVisible(window, fileName, timeoutMs) {
-  var deadline = Date.now() + timeoutMs;
+  var normalizedTimeoutMs = Number(timeoutMs);
+  if (!isFinite(normalizedTimeoutMs)) {
+    normalizedTimeoutMs = 120000;
+  } else if (normalizedTimeoutMs <= 0) {
+    normalizedTimeoutMs = 0;
+  }
+  var started = Date.now();
   var normalizedNeedle = normalizeText(fileName).toLowerCase();
   var prefixLength = Math.min(18, Math.max(8, normalizedNeedle.length));
   var normalizedPrefix = normalizedNeedle.slice(0, prefixLength);
   var lastText = "";
-  while (Date.now() < deadline) {
+  while (normalizedTimeoutMs === 0 || Date.now() - started < normalizedTimeoutMs) {
     var nodes = descendants(window);
     var labels = [];
     for (var index = 0; index < nodes.length; index += 1) {
@@ -3118,6 +3139,25 @@ function dedupe(values = []) {
   return [...new Set(values.filter(Boolean))];
 }
 
+function normalizeOverallTimeoutMs(timeoutMs, fallback = DEFAULT_TIMEOUT_MS) {
+  if (timeoutMs === undefined || timeoutMs === null || timeoutMs === "") {
+    return fallback;
+  }
+  const numeric = Number(timeoutMs);
+  if (!Number.isFinite(numeric)) {
+    return fallback;
+  }
+  return numeric <= 0 ? 0 : Math.max(1, Math.floor(numeric));
+}
+
+function normalizePositiveDurationMs(timeoutMs, fallback) {
+  const numeric = Number(timeoutMs);
+  if (!Number.isFinite(numeric) || numeric <= 0) {
+    return Math.max(1, Math.floor(fallback));
+  }
+  return Math.max(1, Math.floor(numeric));
+}
+
 async function fileExists(filePath) {
   try {
     await access(filePath);
@@ -3206,6 +3246,7 @@ export const __testing = {
   buildUploadTaskPrompt,
   buildTextAuditTaskPrompt,
   messagesForAppRelay,
+  normalizeOverallTimeoutMs,
   calculateDirectAxRelayTimeoutMs,
   parseDirectAxHelperJson,
   mergeSessionBackground,

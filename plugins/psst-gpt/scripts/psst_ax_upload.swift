@@ -56,6 +56,12 @@ func sleepMs(_ milliseconds: Double) {
     Thread.sleep(forTimeInterval: max(0, milliseconds) / 1000.0)
 }
 
+func normalizeTimeoutMs(_ timeoutMs: Double?, fallback: Double) -> Double {
+    guard let timeoutMs else { return fallback }
+    guard timeoutMs.isFinite else { return fallback }
+    return timeoutMs <= 0 ? 0 : max(1, timeoutMs.rounded(.down))
+}
+
 func attr<T>(_ element: AXUIElement, _ name: String) -> T? {
     var value: CFTypeRef?
     guard AXUIElementCopyAttributeValue(element, name as CFString, &value) == .success, let value else {
@@ -182,9 +188,12 @@ struct PasteboardSnapshot {
 }
 
 func waitFor<T>(_ timeoutMs: Double, intervalMs: Double = 250, _ block: () throws -> T?) throws -> T {
-    let deadline = Date().addingTimeInterval(timeoutMs / 1000.0)
+    let normalizedTimeoutMs = timeoutMs.isFinite ? timeoutMs : 0
+    let deadline = normalizedTimeoutMs > 0
+        ? Date().addingTimeInterval(normalizedTimeoutMs / 1000.0)
+        : nil
     var lastError: Error?
-    while Date() < deadline {
+    while deadline == nil || Date() < deadline! {
         do {
             if let result = try block() { return result }
         } catch {
@@ -193,7 +202,7 @@ func waitFor<T>(_ timeoutMs: Double, intervalMs: Double = 250, _ block: () throw
         sleepMs(intervalMs)
     }
     if let lastError { throw lastError }
-    throw AxUploadError.message("Timed out after \(Int(timeoutMs)) ms")
+    throw AxUploadError.message("Timed out after \(Int(normalizedTimeoutMs)) ms")
 }
 
 func chatGPTAppElement() throws -> AXUIElement {
@@ -433,20 +442,22 @@ func run(_ input: Input) throws -> [String: Any] {
         throw AxUploadError.message("Composer text verification failed")
     }
 
-    let uploadTimeoutMs = input.uploadTimeoutMs ?? 120_000
+    let uploadTimeoutMs = normalizeTimeoutMs(input.uploadTimeoutMs, fallback: 120_000)
     for filePath in input.filePaths {
         try uploadFile(filePath, appElement: appElement, uploadTimeoutMs: uploadTimeoutMs)
     }
     try sendIfNeeded(appElement)
 
-    let timeoutMs = input.timeoutMs ?? 1_800_000
+    let timeoutMs = normalizeTimeoutMs(input.timeoutMs, fallback: 0)
     let stableMs = input.responseStableMs ?? 8_000
     let pollMs = input.pollIntervalMs ?? 2_000
-    let deadline = Date().addingTimeInterval(timeoutMs / 1000.0)
+    let deadline = timeoutMs > 0
+        ? Date().addingTimeInterval(timeoutMs / 1000.0)
+        : nil
     var lastAssistantText = ""
     var lastChangedAt = Date()
 
-    while Date() < deadline {
+    while deadline == nil || Date() < deadline! {
         sleepMs(pollMs)
         let window = try chatWindow(appElement)
         let state = snapshot(window)

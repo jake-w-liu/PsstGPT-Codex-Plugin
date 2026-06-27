@@ -15,6 +15,7 @@ When the user invokes `$psst-gpt` or selects `psst-gpt` from the slash command l
 Do not manually choose a transport in Codex. `runPsstGPTTask` decides:
 
 - Automatic full-file upload: requests that say or imply full codebase, full repo, all files, full upload, zip, upload, large codebase, or no truncation route to `uploadAuditPsstGPT`. A prompt such as `$psst-gpt debug audit the full codebase` routes to this path. It packages the source tree into one `source-archive.zip`, uses the direct Swift Accessibility helper to drive the native file picker, sends the audit request, then writes the returned visible response to local Markdown/JSON files.
+- Main relay commands wait with no overall response timeout by default. Set `timeoutMs` only if you want an explicit cap. `poll` is the bounded check-in path for pending sessions.
 - Strict background/no popups: requests that explicitly ask for strict background/no popups, or are clearly lightweight text-only audits, route to `auditPsstGPT`. It builds a line-numbered Markdown audit bundle from local text files, sends it to the ChatGPT app as strict-background text chunks, then sends the final audit request.
 
 ## What It Does
@@ -70,8 +71,7 @@ Start a new app chat:
 const { runPsstGPTTask } = await import("/absolute/path/to/plugin/scripts/psst_gpt.mjs");
 const result = await runPsstGPTTask({
   prompt: "User prompt here",
-  root: process.cwd(),
-  timeoutMs: 30 * 60 * 1000
+  root: process.cwd()
 });
 nodeRepl.write(result.finalDeliveryText);
 ```
@@ -101,8 +101,7 @@ Audit the current codebase in strict background mode:
 const { auditPsstGPT } = await import("/absolute/path/to/plugin/scripts/psst_gpt.mjs");
 const result = await auditPsstGPT({
   root: process.cwd(),
-  background: true,
-  timeoutMs: 30 * 60 * 1000
+  background: true
 });
 nodeRepl.write(result.finalDeliveryText);
 ```
@@ -122,7 +121,7 @@ Audit the current codebase with automatic file upload:
 const { uploadAuditPsstGPT } = await import("/absolute/path/to/plugin/scripts/psst_gpt.mjs");
 const result = await uploadAuditPsstGPT({
   root: process.cwd(),
-  timeoutMs: 30 * 60 * 1000
+  timeoutMs: 0
 });
 nodeRepl.write(result.finalDeliveryText);
 ```
@@ -145,7 +144,7 @@ const { pollPsstGPT } = await import("/absolute/path/to/plugin/scripts/psst_gpt.
 const result = await pollPsstGPT({
   query: "keyword from the original prompt",
   background: true,
-  timeoutMs: 30 * 60 * 1000
+  timeoutMs: 90 * 1000
 });
 nodeRepl.write(result.finalDeliveryText);
 ```

@@ -51,6 +51,7 @@ Linux is not currently targeted because OpenAI's current desktop download page l
 - Sends the prompt through `AXPress` Accessibility actions, not screenshots, OCR, or foreground keyboard focus.
 - Reads visible transcript text from Accessibility.
 - Waits for the assistant response to become stable.
+- Uses no overall response timeout by default for `run`, `continue`, `task`, `audit`, and `upload-audit`.
 - Supports continuing in the active app conversation.
 - Supports polling the active app conversation for a stored pending session.
 - Supports strict-background codebase audits by packaging local text files into a line-numbered Markdown bundle and relaying it as text chunks.
@@ -75,6 +76,8 @@ node plugins/psst-gpt/scripts/psst_gpt.mjs \
 ```
 
 This mode is still standalone PsstGPT. It uses the ChatGPT macOS app's own Upload file menu and native file picker. It may bring ChatGPT forward while selecting files, then writes `chatgpt-audit-response.md` and `chatgpt-audit-result.json` in the generated upload bundle directory.
+
+Main relay commands wait indefinitely by default for ChatGPT to finish. Pass `timeoutMs` only when you want to cap a run yourself. `timeoutMs: 0` explicitly keeps the response wait unbounded. The `poll` helper remains the bounded check-in path for pending sessions, and uploads still use `uploadTimeoutMs` for the file-picker wait.
 
 Check routing without sending:
 
