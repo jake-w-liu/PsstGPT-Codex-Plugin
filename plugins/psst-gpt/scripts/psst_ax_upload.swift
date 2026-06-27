@@ -139,6 +139,21 @@ func press(_ record: NodeRecord, _ name: String) throws {
     }
 }
 
+func click(_ record: NodeRecord, _ name: String) throws {
+    guard let position = record.position, let size = record.size else {
+        throw AxUploadError.message("Could not click \(name): geometry unavailable, label=\(record.label)")
+    }
+    let center = CGPoint(x: position.x + (size.width / 2), y: position.y + (size.height / 2))
+    let source = CGEventSource(stateID: .hidSystemState)
+    let move = CGEvent(mouseEventSource: source, mouseType: .mouseMoved, mouseCursorPosition: center, mouseButton: .left)
+    let down = CGEvent(mouseEventSource: source, mouseType: .leftMouseDown, mouseCursorPosition: center, mouseButton: .left)
+    let up = CGEvent(mouseEventSource: source, mouseType: .leftMouseUp, mouseCursorPosition: center, mouseButton: .left)
+    move?.post(tap: .cghidEventTap)
+    down?.post(tap: .cghidEventTap)
+    up?.post(tap: .cghidEventTap)
+    sleepMs(120)
+}
+
 func setText(_ record: NodeRecord, _ text: String) throws {
     let error = AXUIElementSetAttributeValue(record.element, kAXValueAttribute as CFString, text as CFTypeRef)
     guard error == .success else {
@@ -365,6 +380,32 @@ func uploadDialogAcceptButton(_ appElement: AXUIElement) -> NodeRecord? {
     }
 }
 
+func uploadDialogFileRecord(_ appElement: AXUIElement, fileName: String, prefix: String) -> NodeRecord? {
+    let records = descendants(appElement).map(record)
+    let exact = records.first { item in
+        guard item.role != kAXButtonRole, item.position != nil, item.size != nil else {
+            return false
+        }
+        return item.label.lowercased() == fileName
+    }
+    if let exact { return exact }
+    return records.first { item in
+        guard item.role != kAXButtonRole, item.position != nil, item.size != nil else {
+            return false
+        }
+        let lower = item.label.lowercased()
+        return lower.contains(fileName) || lower == prefix
+    }
+}
+
+func selectUploadDialogFile(_ record: NodeRecord) {
+    if AXUIElementPerformAction(record.element, kAXPressAction as CFString) == .success {
+        sleepMs(150)
+        return
+    }
+    try? click(record, "Upload file row")
+}
+
 func uploadFile(_ filePath: String, appElement: AXUIElement, uploadTimeoutMs: Double) throws {
     let (window, composerRecord) = try waitForComposer(appElement, timeoutMs: 15_000)
     guard let composerPosition = composerRecord.position, let composerSize = composerRecord.size else {
@@ -418,6 +459,9 @@ func uploadFile(_ filePath: String, appElement: AXUIElement, uploadTimeoutMs: Do
     let prefix = String(fileName.prefix(max(8, min(18, fileName.count))))
     _ = try waitFor(uploadTimeoutMs, intervalMs: 500) {
         let appRecords = descendants(appElement).map(record)
+        if let fileRecord = uploadDialogFileRecord(appElement, fileName: fileName, prefix: prefix) {
+            selectUploadDialogFile(fileRecord)
+        }
         if recordsContainUploadNeedle(appRecords, fileName: fileName, prefix: prefix),
            let accept = uploadDialogAcceptButton(appElement) {
             try? press(accept, "Open")
