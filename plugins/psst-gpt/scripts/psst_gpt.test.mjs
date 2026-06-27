@@ -178,6 +178,29 @@ test("messagesForAppRelay appends assistant text once", () => {
   assert.deepEqual(unchanged, messages);
 });
 
+test("messagesForAppRelay preserves history and replaces trailing assistant updates", () => {
+  const history = [
+    { index: 0, role: "user", text: "First prompt" },
+    { index: 1, role: "assistant", text: "First answer" },
+  ];
+
+  const pending = __testing.messagesForAppRelay("Second prompt", "Partial answer", history);
+  assert.deepEqual(pending, [
+    { index: 0, role: "user", text: "First prompt" },
+    { index: 1, role: "assistant", text: "First answer" },
+    { index: 2, role: "user", text: "Second prompt" },
+    { index: 3, role: "assistant", text: "Partial answer" },
+  ]);
+
+  const complete = __testing.messagesForAppRelay("Second prompt", "Final answer", pending);
+  assert.deepEqual(complete, [
+    { index: 0, role: "user", text: "First prompt" },
+    { index: 1, role: "assistant", text: "First answer" },
+    { index: 2, role: "user", text: "Second prompt" },
+    { index: 3, role: "assistant", text: "Final answer" },
+  ]);
+});
+
 test("parseDirectAxHelperJson accepts pretty helper payloads", () => {
   const payload = {
     ok: false,
@@ -189,6 +212,42 @@ test("parseDirectAxHelperJson accepts pretty helper payloads", () => {
   assert.deepEqual(__testing.parseDirectAxHelperJson(pretty), payload);
   assert.deepEqual(__testing.parseDirectAxHelperJson(`warning: ignored\n${pretty}`), payload);
   assert.equal(__testing.parseDirectAxHelperJson("not json"), null);
+});
+
+test("parseDirectAxHelperJson keeps the full nested payload when warnings precede JSON", () => {
+  const payload = {
+    ok: true,
+    status: "complete",
+    assistantText: "MARKER",
+    state: {
+      title: "ChatGPT",
+      nested: { value: 1 },
+    },
+  };
+  const pretty = JSON.stringify(payload, null, 2);
+
+  assert.deepEqual(
+    __testing.parseDirectAxHelperJson(`warning: ignored\n${pretty}`),
+    payload
+  );
+});
+
+test("calculateDirectAxRelayTimeoutMs budgets upload time per file", () => {
+  assert.equal(
+    __testing.calculateDirectAxRelayTimeoutMs({
+      timeoutMs: 300000,
+      uploadTimeoutMs: 2000,
+      fileCount: 3,
+    }),
+    336000
+  );
+});
+
+test("mergeSessionBackground keeps foreground workflows marked foreground-used", () => {
+  assert.equal(__testing.mergeSessionBackground(undefined, undefined), true);
+  assert.equal(__testing.mergeSessionBackground(true, true), true);
+  assert.equal(__testing.mergeSessionBackground(false, true), false);
+  assert.equal(__testing.mergeSessionBackground(true, false), false);
 });
 
 test("send button detection handles long scrollable composer geometry", () => {

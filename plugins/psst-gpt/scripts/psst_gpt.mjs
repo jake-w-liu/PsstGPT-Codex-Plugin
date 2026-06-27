@@ -660,6 +660,7 @@ export async function uploadAuditPsstGPT(options = {}) {
     uploadTimeoutMs = 2 * 60 * 1000,
     maxAttachmentsPerMessage = DEFAULT_UPLOAD_MAX_ATTACHMENTS_PER_MESSAGE,
     statePath,
+    relaySessionId = `app-${Date.now()}`,
     tags = [],
     ...bundleOptionOverrides
   } = options;
@@ -694,6 +695,7 @@ export async function uploadAuditPsstGPT(options = {}) {
       waitChunkMs,
       uploadTimeoutMs,
       statePath,
+      relaySessionId,
       tags: dedupe([...tags, "upload-bundle"]),
     });
     return persistUploadAuditResult({ result, bundle });
@@ -713,6 +715,7 @@ export async function uploadAuditPsstGPT(options = {}) {
     waitChunkMs,
     uploadTimeoutMs,
     statePath,
+    relaySessionId,
     tags: dedupe([...tags, "upload-bundle"]),
   });
 
@@ -730,6 +733,7 @@ export async function uploadAuditPsstGPT(options = {}) {
       waitChunkMs,
       uploadTimeoutMs,
       statePath,
+      relaySessionId,
       tags: dedupe([...tags, "upload-bundle"]),
     });
   }
@@ -744,6 +748,7 @@ export async function uploadAuditPsstGPT(options = {}) {
     timeoutMs,
     waitChunkMs,
     statePath,
+    relaySessionId,
     background: true,
     tags: dedupe([...tags, "upload-bundle"]),
   });
@@ -880,6 +885,7 @@ async function relayPromptWithFileUploads({
   waitChunkMs = DEFAULT_WAIT_CHUNK_MS,
   uploadTimeoutMs = 2 * 60 * 1000,
   statePath,
+  relaySessionId,
   tags = [],
 }) {
   if (typeof prompt !== "string" || !prompt.trim()) {
@@ -895,6 +901,9 @@ async function relayPromptWithFileUploads({
 
   await ensureChatGPTAppReady({ background: false, verify: false });
   const promptText = prompt.trim();
+  const existingRecord = relaySessionId
+    ? await findStoredAppSessionByRelayId(relaySessionId, statePath)
+    : null;
   const directResult = await runDirectAxUploadRelay({
     prompt: promptText,
     filePaths: normalizedFilePaths,
@@ -905,15 +914,17 @@ async function relayPromptWithFileUploads({
   const state = directResult.state ?? {};
   const assistantText = directResult.assistantText || extractAssistantTextFromAppState(state, promptText);
   assertNoFatalAppBlocker(state);
+  const messages = messagesForAppRelay(promptText, assistantText, existingRecord?.messages);
 
   const record = await upsertAppSessionRecord({
     statePath,
+    relaySessionId,
     prompt: promptText,
     title: state.title ?? "ChatGPT",
     mode: state.visibleModelLabel,
     background: false,
     status: directResult.status ?? "complete",
-    messages: messagesForAppRelay(promptText, assistantText),
+    messages,
     tags,
   });
 
@@ -948,7 +959,11 @@ async function runDirectAxUploadRelay({
       "/usr/bin/swift",
       [DIRECT_AX_UPLOAD_HELPER_PATH, JSON.stringify(payload)],
       {
-        timeout: timeoutMs + uploadTimeoutMs + 30000,
+        timeout: calculateDirectAxRelayTimeoutMs({
+          timeoutMs,
+          uploadTimeoutMs,
+          fileCount: filePaths.length,
+        }),
         maxBuffer: 10 * 1024 * 1024,
       }
     ));
@@ -1008,14 +1023,25 @@ function parseDirectAxHelperJson(output) {
     // Swift normally emits only JSON. This fallback keeps helper output
     // parseable if compiler/runtime warnings appear before the payload.
   }
-  for (let index = text.lastIndexOf("{"); index >= 0; index = text.lastIndexOf("{", index - 1)) {
+  for (let index = text.indexOf("{"); index >= 0; index = text.indexOf("{", index + 1)) {
     try {
       return JSON.parse(text.slice(index));
     } catch {
-      // Keep scanning for an earlier object start.
+      // Keep scanning for a later object start.
     }
   }
   return null;
+}
+
+function calculateDirectAxRelayTimeoutMs({
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+  uploadTimeoutMs = 2 * 60 * 1000,
+  fileCount = 0,
+} = {}) {
+  const normalizedResponseTimeoutMs = Math.max(1, Number(timeoutMs) || DEFAULT_TIMEOUT_MS);
+  const normalizedUploadTimeoutMs = Math.max(1, Number(uploadTimeoutMs) || 2 * 60 * 1000);
+  const normalizedFileCount = Math.max(1, Number(fileCount) || 0);
+  return normalizedResponseTimeoutMs + (normalizedUploadTimeoutMs * normalizedFileCount) + 30000;
 }
 
 async function validateUploadFilePaths(filePaths = []) {
@@ -1041,48 +1067,6 @@ async function validateUploadFilePaths(filePaths = []) {
     output.push(filePath);
   }
   return output;
-}
-
-async function selectFileInOpenDialog(filePath, { timeoutMs = 2 * 60 * 1000 } = {}) {
-  const script = `
-on run argv
-  set targetPath to item 1 of argv
-  set oldClipboard to the clipboard
-  set the clipboard to targetPath
-  try
-    tell application "ChatGPT" to activate
-    tell application "System Events"
-      tell process "ChatGPT"
-        set frontmost to true
-        keystroke "g" using {command down, shift down}
-        delay 0.4
-        keystroke "v" using {command down}
-        delay 0.2
-        key code 36
-        delay 1.0
-        key code 36
-      end tell
-    end tell
-  on error errorMessage number errorNumber
-    set the clipboard to oldClipboard
-    error errorMessage number errorNumber
-  end try
-  delay 0.2
-  set the clipboard to oldClipboard
-end run
-`;
-  try {
-    await execFileAsync("/usr/bin/osascript", ["-e", script, filePath], {
-      timeout: timeoutMs,
-      maxBuffer: 1024 * 1024,
-    });
-  } catch (error) {
-    throw codedError(
-      "PSST_GPT_FILE_PICKER_SELECT_FAILED",
-      `Could not select upload file in the ChatGPT app file picker: ${filePath}`,
-      { cause: error }
-    );
-  }
 }
 
 async function persistUploadAuditResult({ result, bundle }) {
@@ -1354,6 +1338,10 @@ async function relayPromptToChatGPTApp(options = {}) {
   await ensureChatGPTAppReady({ background, verify: false });
 
   const promptText = prompt.trim();
+  const existingRecord = relaySessionId
+    ? await findStoredAppSessionByRelayId(relaySessionId, statePath)
+    : null;
+  const baseMessages = messagesForAppRelay(promptText, "", existingRecord?.messages);
   const initialState = await runJxa("sendPrompt", {
     prompt: promptText,
     newChat: newChat !== false,
@@ -1369,7 +1357,7 @@ async function relayPromptToChatGPTApp(options = {}) {
     mode: initialState.visibleModelLabel,
     background,
     status: "pending",
-    messages: messagesForAppRelay(promptText, ""),
+    messages: baseMessages,
     tags,
   });
 
@@ -1397,12 +1385,12 @@ async function relayPromptToChatGPTApp(options = {}) {
         mode: pendingResult.state.visibleModelLabel || pendingRecord.mode,
         background,
         status: pendingResult.status,
-        messages: messagesForAppRelay(promptText, pendingResult.assistantText),
+        messages: messagesForAppRelay(promptText, pendingResult.assistantText, baseMessages),
         tags,
       });
     },
   });
-  const messages = messagesForAppRelay(promptText, result.assistantText);
+  const messages = messagesForAppRelay(promptText, result.assistantText, baseMessages);
   const record = await upsertAppSessionRecord({
     statePath,
     relaySessionId: pendingRecord.relaySessionId,
@@ -1764,25 +1752,46 @@ function formatAppFinalDeliveryText({ assistantText = "", relaySessionId = "" } 
 }
 
 function messagesForAppRelay(prompt, assistantText, previousMessages = []) {
-  const messages = Array.isArray(previousMessages) && previousMessages.length
+  const messages = Array.isArray(previousMessages)
     ? previousMessages.map((message, index) => ({ ...message, index }))
-    : [
-        {
-          index: 0,
-          role: "user",
-          text: String(prompt ?? "").trim(),
-        },
-      ];
+    : [];
+  const promptText = String(prompt ?? "").trim();
+  if (promptText) {
+    let lastUserIndex = -1;
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      if (messages[index]?.role === "user") {
+        lastUserIndex = index;
+        break;
+      }
+    }
+    const promptAlreadyCurrent =
+      lastUserIndex >= 0 &&
+      messages[lastUserIndex].text === promptText &&
+      messages.slice(lastUserIndex + 1).every((message) => message.role === "assistant");
+    if (!promptAlreadyCurrent) {
+      messages.push({
+        index: messages.length,
+        role: "user",
+        text: promptText,
+      });
+    }
+  }
 
-  if (assistantText?.trim()) {
-    const existingAssistantIndex = messages.findIndex(
-      (message) => message.role === "assistant" && message.text === assistantText.trim()
-    );
-    if (existingAssistantIndex === -1) {
+  const nextAssistantText = assistantText?.trim();
+  if (nextAssistantText) {
+    const last = messages.at(-1);
+    if (last?.role === "assistant") {
+      if (last.text !== nextAssistantText) {
+        messages[messages.length - 1] = {
+          ...last,
+          text: nextAssistantText,
+        };
+      }
+    } else {
       messages.push({
         index: messages.length,
         role: "assistant",
-        text: assistantText.trim(),
+        text: nextAssistantText,
       });
     }
   }
@@ -2632,7 +2641,7 @@ async function upsertAppSessionRecord(input) {
     title: input.title ?? existing.title ?? "ChatGPT",
     prompt: input.prompt ?? existing.prompt ?? messages.find((message) => message.role === "user")?.text ?? "",
     mode: input.mode ?? existing.mode ?? "Current ChatGPT app selection",
-    background: input.background ?? existing.background ?? true,
+    background: mergeSessionBackground(existing.background, input.background),
     status: input.status ?? existing.status ?? "complete",
     messages,
     summary: summarizeMessages(messages),
@@ -2673,6 +2682,14 @@ async function findStoredAppSession({ sessionId, query, statePath }) {
       .filter(Boolean)
       .some((value) => String(value).toLowerCase().includes(needle))
   ) ?? null;
+}
+
+async function findStoredAppSessionByRelayId(relaySessionId, statePath) {
+  if (!relaySessionId) {
+    return null;
+  }
+  const store = await loadAppSessionStore(statePath);
+  return store.sessions.find((session) => session.relaySessionId === relaySessionId) ?? null;
 }
 
 function filterAppSessions(sessions = [], query = "") {
@@ -2755,6 +2772,19 @@ function publicAppSession(session) {
     createdAt: session.createdAt,
     updatedAt: session.updatedAt,
   };
+}
+
+function mergeSessionBackground(existingBackground, nextBackground) {
+  if (existingBackground === false || nextBackground === false) {
+    return false;
+  }
+  if (nextBackground !== undefined) {
+    return nextBackground;
+  }
+  if (existingBackground !== undefined) {
+    return existingBackground;
+  }
+  return true;
 }
 
 function summarizeMessages(messages = []) {
@@ -2870,7 +2900,9 @@ export const __testing = {
   buildUploadTaskPrompt,
   buildTextAuditTaskPrompt,
   messagesForAppRelay,
+  calculateDirectAxRelayTimeoutMs,
   parseDirectAxHelperJson,
+  mergeSessionBackground,
   isPossibleSendButtonRecord,
   visibleComposerBottomY,
   chunkTextByLines,
