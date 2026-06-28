@@ -533,6 +533,8 @@ export async function createPsstGPTAuditBundle(options = {}) {
     fallbackDir: bundleDirFallback,
     invalidCode: "PSST_GPT_AUDIT_OUTPUT_DIR_INVALID",
     invalidLabel: "audit bundle outputDir",
+    disallowedPath: resolvedRoot,
+    disallowedMessage: `Audit bundle outputDir must not be the same directory as the audit root: ${resolvedRoot}`,
   });
   const markdown = formatAuditBundleMarkdown({
     bundleId,
@@ -684,6 +686,8 @@ export async function createPsstGPTUploadBundle(options = {}) {
     fallbackDir: bundleDirFallback,
     invalidCode: "PSST_GPT_UPLOAD_OUTPUT_DIR_INVALID",
     invalidLabel: "upload bundle outputDir",
+    disallowedPath: resolvedRoot,
+    disallowedMessage: `Upload bundle outputDir must not be the same directory as the upload root: ${resolvedRoot}`,
   });
 
   const archiveName = "source-archive.zip";
@@ -2035,6 +2039,17 @@ async function validateProvidedUploadBundle(bundle) {
       { bundleId: bundle.bundleId }
     );
   }
+  if (
+    typeof bundle.root === "string" &&
+    path.isAbsolute(bundle.root) &&
+    path.resolve(bundle.root) === path.resolve(bundle.outputDir)
+  ) {
+    throw codedError(
+      "PSST_GPT_UPLOAD_BUNDLE_INVALID",
+      "Provided upload bundle outputDir must not be the same directory as the bundle root.",
+      { bundleId: bundle.bundleId }
+    );
+  }
   try {
     const outputDirStat = await stat(bundle.outputDir);
     if (!outputDirStat.isDirectory()) {
@@ -2087,9 +2102,19 @@ async function ensureBundleOutputDir({
   fallbackDir,
   invalidCode,
   invalidLabel,
+  disallowedPath,
+  disallowedMessage,
 }) {
   const bundleDir = outputDir ? path.resolve(outputDir) : fallbackDir;
   let bundleDirExisted = false;
+
+  if (disallowedPath && path.resolve(bundleDir) === path.resolve(disallowedPath)) {
+    throw codedError(
+      invalidCode,
+      disallowedMessage || `Provided ${invalidLabel} is not allowed: ${bundleDir}`,
+      { outputDir: bundleDir }
+    );
+  }
 
   try {
     const bundleDirStat = await stat(bundleDir);

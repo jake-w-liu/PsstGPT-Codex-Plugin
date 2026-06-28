@@ -187,6 +187,7 @@ Unreadable files are skipped with a recorded reason instead of aborting the whol
 If you later pass a previously created bundle object back into PsstGPT, its referenced paths must still be readable, and upload bundle output directories must still be writable, or PsstGPT fails explicitly with `PSST_GPT_AUDIT_BUNDLE_INVALID` or `PSST_GPT_UPLOAD_BUNDLE_INVALID`.
 If you pass `outputDir`, it must either not exist yet or already be a readable, writable directory. Existing files at that path now fail explicitly with `PSST_GPT_AUDIT_OUTPUT_DIR_INVALID` or `PSST_GPT_UPLOAD_OUTPUT_DIR_INVALID`.
 If `outputDir` lives inside the project root, later reruns now skip prior PsstGPT-generated bundle directories instead of recursively packaging earlier `audit-bundle.md`, `manifest.json`, or `source-archive.zip` artifacts.
+`outputDir` must not be the same directory as the bundle root itself. That configuration now fails explicitly with `PSST_GPT_AUDIT_OUTPUT_DIR_INVALID` or `PSST_GPT_UPLOAD_OUTPUT_DIR_INVALID`.
 
 Run the automatic task router for a foreground upload audit:
 
