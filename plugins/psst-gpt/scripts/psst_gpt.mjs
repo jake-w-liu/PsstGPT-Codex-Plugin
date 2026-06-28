@@ -1,4 +1,4 @@
-import { access, mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
+import { access, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { execFile, spawn } from "node:child_process";
@@ -516,12 +516,21 @@ export async function createPsstGPTAuditBundle(options = {}) {
   const bundleDir = outputDir
     ? path.resolve(outputDir)
     : path.join(os.tmpdir(), "psst-gpt", "audit-bundles", bundleId);
-  await mkdir(bundleDir, { recursive: true });
 
   const { files, skipped } = await collectAuditFiles(resolvedRoot, {
     maxFileBytes,
     maxTotalBytes,
   });
+  if (files.length === 0) {
+    throw codedError(
+      "PSST_GPT_AUDIT_BUNDLE_EMPTY",
+      "No auditable text files were found for the requested root.",
+      { root: resolvedRoot, skipped }
+    );
+  }
+
+  const bundleDirExisted = await fileExists(bundleDir);
+  await mkdir(bundleDir, { recursive: true });
   const markdown = formatAuditBundleMarkdown({
     bundleId,
     createdAt,
@@ -544,31 +553,38 @@ export async function createPsstGPTAuditBundle(options = {}) {
   const manifestPath = path.join(bundleDir, "manifest.json");
   const zipPath = path.join(bundleDir, "audit-bundle.zip");
 
-  await writeFile(markdownPath, markdown, "utf8");
-  await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
-
-  let zipCreated = false;
   try {
-    await execFileAsync("zip", ["-q", "audit-bundle.zip", "audit-bundle.md", "manifest.json"], {
-      cwd: bundleDir,
-      timeout: 30000,
-    });
-    zipCreated = true;
-  } catch {
-    // The Markdown bundle is the primary artifact; zip is a convenience when available.
-  }
+    await writeFile(markdownPath, markdown, "utf8");
+    await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
 
-  return {
-    ok: true,
-    bundleId,
-    root: resolvedRoot,
-    outputDir: bundleDir,
-    markdownPath,
-    manifestPath,
-    zipPath: zipCreated ? zipPath : null,
-    files: manifest.files,
-    skipped,
-  };
+    let zipCreated = false;
+    try {
+      await execFileAsync("zip", ["-q", "audit-bundle.zip", "audit-bundle.md", "manifest.json"], {
+        cwd: bundleDir,
+        timeout: 30000,
+      });
+      zipCreated = true;
+    } catch {
+      // The Markdown bundle is the primary artifact; zip is a convenience when available.
+    }
+
+    return {
+      ok: true,
+      bundleId,
+      root: resolvedRoot,
+      outputDir: bundleDir,
+      markdownPath,
+      manifestPath,
+      zipPath: zipCreated ? zipPath : null,
+      files: manifest.files,
+      skipped,
+    };
+  } catch (error) {
+    if (!bundleDirExisted) {
+      await rm(bundleDir, { recursive: true, force: true });
+    }
+    throw error;
+  }
 }
 
 export async function auditPsstGPT(options = {}) {
@@ -641,7 +657,6 @@ export async function createPsstGPTUploadBundle(options = {}) {
   const bundleDir = outputDir
     ? path.resolve(outputDir)
     : path.join(os.tmpdir(), "psst-gpt", "upload-bundles", bundleId);
-  await mkdir(bundleDir, { recursive: true });
 
   const { files, skipped } = await collectUploadFiles(resolvedRoot, {
     includeDefaultExcludes,
@@ -656,36 +671,45 @@ export async function createPsstGPTUploadBundle(options = {}) {
       { root: resolvedRoot, skipped }
     );
   }
+  const bundleDirExisted = await fileExists(bundleDir);
+  await mkdir(bundleDir, { recursive: true });
 
   const archiveName = "source-archive.zip";
   const archivePath = path.join(bundleDir, archiveName);
-  await zipRelativeFiles({
-    root: resolvedRoot,
-    zipPath: archivePath,
-    relativePaths: files.map((file) => file.path),
-  });
-  const archiveStat = await stat(archivePath);
-  const archive = buildUploadArchiveRecord({
-    index: 1,
-    name: archiveName,
-    archivePath,
-    archiveBytes: archiveStat.size,
-    files,
-  });
+  try {
+    await zipRelativeFiles({
+      root: resolvedRoot,
+      zipPath: archivePath,
+      relativePaths: files.map((file) => file.path),
+    });
+    const archiveStat = await stat(archivePath);
+    const archive = buildUploadArchiveRecord({
+      index: 1,
+      name: archiveName,
+      archivePath,
+      archiveBytes: archiveStat.size,
+      files,
+    });
 
-  const result = {
-    ok: true,
-    bundleId,
-    root: resolvedRoot,
-    outputDir: bundleDir,
-    archivePath,
-    attachmentPaths: [archivePath],
-    files: files.map((file) => ({ path: file.path, bytes: file.bytes })),
-    skipped,
-    shards: [archive],
-    archives: [archive],
-  };
-  return result;
+    const result = {
+      ok: true,
+      bundleId,
+      root: resolvedRoot,
+      outputDir: bundleDir,
+      archivePath,
+      attachmentPaths: [archivePath],
+      files: files.map((file) => ({ path: file.path, bytes: file.bytes })),
+      skipped,
+      shards: [archive],
+      archives: [archive],
+    };
+    return result;
+  } catch (error) {
+    if (!bundleDirExisted) {
+      await rm(bundleDir, { recursive: true, force: true });
+    }
+    throw error;
+  }
 }
 
 export async function uploadAuditPsstGPT(options = {}) {

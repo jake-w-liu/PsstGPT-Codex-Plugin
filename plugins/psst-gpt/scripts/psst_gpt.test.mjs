@@ -866,6 +866,28 @@ test("createPsstGPTAuditBundle writes line-numbered markdown and skips excluded 
   }
 });
 
+test("createPsstGPTAuditBundle fails without leaving output when no auditable files exist", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "psst-gpt-audit-empty-"));
+  const outputDir = path.join(os.tmpdir(), `psst-gpt-audit-empty-out-${Date.now()}`);
+  try {
+    await writeFile(path.join(root, "image.bin"), "not text\n", "utf8");
+
+    await assert.rejects(
+      createPsstGPTAuditBundle({
+        root,
+        outputDir,
+        maxFileBytes: 1024,
+        maxTotalBytes: 4096,
+      }),
+      { code: "PSST_GPT_AUDIT_BUNDLE_EMPTY" }
+    );
+    assert.equal(await stat(outputDir).then(() => true, () => false), false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+    await rm(outputDir, { recursive: true, force: true });
+  }
+});
+
 test("uploadAuditPsstGPT preflights before creating the upload bundle", async () => {
   let bundleFactoryCalls = 0;
   await assert.rejects(
@@ -883,6 +905,27 @@ test("uploadAuditPsstGPT preflights before creating the upload bundle", async ()
     { code: "PSST_GPT_WINDOW_SHELL_ONLY" }
   );
   assert.equal(bundleFactoryCalls, 0);
+});
+
+test("createPsstGPTUploadBundle fails without leaving output when no uploadable files exist", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "psst-gpt-upload-empty-"));
+  const outputDir = path.join(os.tmpdir(), `psst-gpt-upload-empty-out-${Date.now()}`);
+  try {
+    await mkdir(path.join(root, ".git"), { recursive: true });
+    await writeFile(path.join(root, ".git", "config"), "[core]\n", "utf8");
+
+    await assert.rejects(
+      createPsstGPTUploadBundle({
+        root,
+        outputDir,
+      }),
+      { code: "PSST_GPT_UPLOAD_BUNDLE_EMPTY" }
+    );
+    assert.equal(await stat(outputDir).then(() => true, () => false), false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+    await rm(outputDir, { recursive: true, force: true });
+  }
 });
 
 test("createPsstGPTUploadBundle writes one source archive only", async () => {
