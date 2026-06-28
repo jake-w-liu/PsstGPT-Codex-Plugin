@@ -861,6 +861,29 @@ test("auditPsstGPT uses a provided ready audit bundle without rebuilding it", as
   assert.equal(bundleFactoryCalls, 0);
 });
 
+test("auditPsstGPT rejects an unreadable provided audit bundle before relay", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "psst-gpt-audit-bundle-invalid-"));
+  const markdownPath = path.join(root, "audit-bundle.md");
+  try {
+    await writeFile(markdownPath, "# bundle\n", "utf8");
+    await chmod(markdownPath, 0o000);
+
+    await assert.rejects(
+      auditPsstGPT({
+        preflight: async () => {},
+        auditBundle: {
+          bundleId: "bundle-ready",
+          markdownPath,
+        },
+      }),
+      { code: "PSST_GPT_AUDIT_BUNDLE_INVALID" }
+    );
+    await chmod(markdownPath, 0o644);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("createPsstGPTAuditBundle writes line-numbered markdown and skips excluded files", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "psst-gpt-audit-test-"));
   try {
@@ -968,6 +991,66 @@ test("uploadAuditPsstGPT rejects an invalid provided upload bundle before relay"
     }),
     { code: "PSST_GPT_UPLOAD_BUNDLE_INVALID" }
   );
+});
+
+test("uploadAuditPsstGPT rejects a provided upload bundle with an unreadable attachment", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "psst-gpt-upload-bundle-invalid-"));
+  const outputDir = path.join(root, "out");
+  const attachmentPath = path.join(root, "source-archive.zip");
+  try {
+    await mkdir(outputDir, { recursive: true });
+    await writeFile(attachmentPath, "zip-bytes", "utf8");
+    await chmod(attachmentPath, 0o000);
+
+    await assert.rejects(
+      uploadAuditPsstGPT({
+        preflight: async () => {
+          throw new Error("preflight should not run when uploadBundle is provided");
+        },
+        uploadBundle: {
+          bundleId: "bundle-ready",
+          outputDir,
+          attachmentPaths: [attachmentPath],
+        },
+        timeoutMs: 1,
+        uploadTimeoutMs: 1,
+      }),
+      { code: "PSST_GPT_UPLOAD_BUNDLE_INVALID" }
+    );
+    await chmod(attachmentPath, 0o644);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("uploadAuditPsstGPT rejects a provided upload bundle with an unwritable outputDir", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "psst-gpt-upload-bundle-output-"));
+  const outputDir = path.join(root, "out");
+  const attachmentPath = path.join(root, "source-archive.zip");
+  try {
+    await mkdir(outputDir, { recursive: true });
+    await writeFile(attachmentPath, "zip-bytes", "utf8");
+    await chmod(outputDir, 0o555);
+
+    await assert.rejects(
+      uploadAuditPsstGPT({
+        preflight: async () => {
+          throw new Error("preflight should not run when uploadBundle is provided");
+        },
+        uploadBundle: {
+          bundleId: "bundle-ready",
+          outputDir,
+          attachmentPaths: [attachmentPath],
+        },
+        timeoutMs: 1,
+        uploadTimeoutMs: 1,
+      }),
+      { code: "PSST_GPT_UPLOAD_BUNDLE_INVALID" }
+    );
+    await chmod(outputDir, 0o755);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test("createPsstGPTUploadBundle fails without leaving output when no uploadable files exist", async () => {

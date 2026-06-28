@@ -1408,11 +1408,23 @@ async function validateUploadFilePaths(filePaths = []) {
         { filePath }
       );
     }
-    const fileStat = await stat(filePath);
-    if (!fileStat.isFile()) {
+    try {
+      const fileStat = await stat(filePath);
+      if (!fileStat.isFile()) {
+        throw codedError(
+          "PSST_GPT_UPLOAD_FILE_PATH_INVALID",
+          `Upload path is not a file: ${filePath}`
+        );
+      }
+      await access(filePath, FS_CONSTANTS.R_OK);
+    } catch (error) {
+      if (error?.code === "PSST_GPT_UPLOAD_FILE_PATH_INVALID") {
+        throw error;
+      }
       throw codedError(
         "PSST_GPT_UPLOAD_FILE_PATH_INVALID",
-        `Upload path is not a file: ${filePath}`
+        `Upload path is not readable: ${filePath}`,
+        { filePath, cause: error }
       );
     }
     output.push(filePath);
@@ -1965,6 +1977,7 @@ async function validateProvidedAuditBundle(bundle) {
         { bundleId: bundle.bundleId }
       );
     }
+    await access(bundle.markdownPath, FS_CONSTANTS.R_OK);
   } catch (error) {
     if (error?.code === "PSST_GPT_AUDIT_BUNDLE_INVALID") {
       throw error;
@@ -2007,13 +2020,14 @@ async function validateProvidedUploadBundle(bundle) {
         { bundleId: bundle.bundleId }
       );
     }
+    await access(bundle.outputDir, FS_CONSTANTS.R_OK | FS_CONSTANTS.W_OK);
   } catch (error) {
     if (error?.code === "PSST_GPT_UPLOAD_BUNDLE_INVALID") {
       throw error;
     }
     throw codedError(
       "PSST_GPT_UPLOAD_BUNDLE_INVALID",
-      `Provided upload bundle outputDir is not readable: ${bundle.outputDir}`,
+      `Provided upload bundle outputDir is not readable and writable: ${bundle.outputDir}`,
       { bundleId: bundle.bundleId, cause: error }
     );
   }
