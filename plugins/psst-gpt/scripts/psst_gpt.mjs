@@ -1,3 +1,4 @@
+import { constants as FS_CONSTANTS } from "node:fs";
 import { access, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -944,15 +945,24 @@ async function collectUploadFiles(root, {
         continue;
       }
 
-      const fileStat = await stat(absolutePath);
-      if (fileStat.size > maxSingleFileBytes) {
+      try {
+        const fileStat = await stat(absolutePath);
+        if (fileStat.size > maxSingleFileBytes) {
+          skipped.push({
+            path: relativePath,
+            reason: `larger than maxSingleFileBytes (${fileStat.size} > ${maxSingleFileBytes})`,
+          });
+          continue;
+        }
+        await access(absolutePath, FS_CONSTANTS.R_OK);
+        files.push({ path: relativePath, absolutePath, bytes: fileStat.size });
+      } catch (error) {
         skipped.push({
           path: relativePath,
-          reason: `larger than maxSingleFileBytes (${fileStat.size} > ${maxSingleFileBytes})`,
+          reason: `Could not read file: ${error?.code ?? error?.message ?? error}`,
         });
         continue;
       }
-      files.push({ path: relativePath, absolutePath, bytes: fileStat.size });
     }
   }
 
@@ -1716,36 +1726,45 @@ async function collectAuditFiles(root, { maxFileBytes, maxTotalBytes }) {
   const files = [];
   let totalBytes = 0;
   for (const file of discovered) {
-    const fileStat = await stat(file.absolutePath);
-    if (fileStat.size > maxFileBytes) {
-      skipped.push({
-        path: file.relativePath,
-        reason: `larger than maxFileBytes (${fileStat.size} > ${maxFileBytes})`,
-      });
-      continue;
-    }
-    if (totalBytes + fileStat.size > maxTotalBytes) {
-      skipped.push({
-        path: file.relativePath,
-        reason: `would exceed maxTotalBytes (${totalBytes + fileStat.size} > ${maxTotalBytes})`,
-      });
-      continue;
-    }
+    try {
+      const fileStat = await stat(file.absolutePath);
+      if (fileStat.size > maxFileBytes) {
+        skipped.push({
+          path: file.relativePath,
+          reason: `larger than maxFileBytes (${fileStat.size} > ${maxFileBytes})`,
+        });
+        continue;
+      }
+      if (totalBytes + fileStat.size > maxTotalBytes) {
+        skipped.push({
+          path: file.relativePath,
+          reason: `would exceed maxTotalBytes (${totalBytes + fileStat.size} > ${maxTotalBytes})`,
+        });
+        continue;
+      }
 
-    const buffer = await readFile(file.absolutePath);
-    if (buffer.includes(0)) {
-      skipped.push({ path: file.relativePath, reason: "contains NUL byte" });
+      await access(file.absolutePath, FS_CONSTANTS.R_OK);
+      const buffer = await readFile(file.absolutePath);
+      if (buffer.includes(0)) {
+        skipped.push({ path: file.relativePath, reason: "contains NUL byte" });
+        continue;
+      }
+      const text = buffer.toString("utf8").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+      const splitLines = text.split("\n");
+      files.push({
+        path: file.relativePath,
+        bytes: fileStat.size,
+        lines: text.endsWith("\n") ? Math.max(0, splitLines.length - 1) : splitLines.length,
+        text,
+      });
+      totalBytes += fileStat.size;
+    } catch (error) {
+      skipped.push({
+        path: file.relativePath,
+        reason: `Could not read file: ${error?.code ?? error?.message ?? error}`,
+      });
       continue;
     }
-    const text = buffer.toString("utf8").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-    const splitLines = text.split("\n");
-    files.push({
-      path: file.relativePath,
-      bytes: fileStat.size,
-      lines: text.endsWith("\n") ? Math.max(0, splitLines.length - 1) : splitLines.length,
-      text,
-    });
-    totalBytes += fileStat.size;
   }
 
   return { files, skipped };

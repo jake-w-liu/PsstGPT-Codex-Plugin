@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -866,6 +866,30 @@ test("createPsstGPTAuditBundle writes line-numbered markdown and skips excluded 
   }
 });
 
+test("createPsstGPTAuditBundle skips unreadable text files instead of aborting", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "psst-gpt-audit-perms-"));
+  try {
+    const unreadablePath = path.join(root, "bad.js");
+    await writeFile(path.join(root, "good.js"), "console.log('good');\n", "utf8");
+    await writeFile(unreadablePath, "console.log('bad');\n", "utf8");
+    await chmod(unreadablePath, 0o000);
+
+    const bundle = await createPsstGPTAuditBundle({
+      root,
+      maxFileBytes: 1024,
+      maxTotalBytes: 4096,
+    });
+
+    assert.deepEqual(bundle.files.map((file) => file.path), ["good.js"]);
+    assert.equal(bundle.skipped.some((entry) =>
+      entry.path === "bad.js" && /Could not read file/i.test(entry.reason)
+    ), true);
+    await chmod(unreadablePath, 0o644);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("createPsstGPTAuditBundle fails without leaving output when no auditable files exist", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "psst-gpt-audit-empty-"));
   const outputDir = path.join(os.tmpdir(), `psst-gpt-audit-empty-out-${Date.now()}`);
@@ -970,6 +994,32 @@ test("createPsstGPTUploadBundle writes one source archive only", async () => {
     assert.doesNotMatch(archiveListing.stdout, /upload-manifest\.json/);
     assert.doesNotMatch(archiveListing.stdout, /\.agents\/plugins\/marketplace\.json/);
     assert.doesNotMatch(archiveListing.stdout, /\.arc\/telemetry\.jsonl/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("createPsstGPTUploadBundle skips unreadable files instead of aborting", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "psst-gpt-upload-perms-"));
+  try {
+    const unreadablePath = path.join(root, "bad.js");
+    await writeFile(path.join(root, "good.js"), "console.log('good');\n", "utf8");
+    await writeFile(unreadablePath, "console.log('bad');\n", "utf8");
+    await chmod(unreadablePath, 0o000);
+
+    const bundle = await createPsstGPTUploadBundle({
+      root,
+      maxSingleFileBytes: 4096,
+    });
+    const archiveListing = await execFileAsync("unzip", ["-l", bundle.archivePath]);
+
+    assert.deepEqual(bundle.files.map((file) => file.path), ["good.js"]);
+    assert.equal(bundle.skipped.some((entry) =>
+      entry.path === "bad.js" && /Could not read file/i.test(entry.reason)
+    ), true);
+    assert.match(archiveListing.stdout, /good\.js/);
+    assert.doesNotMatch(archiveListing.stdout, /bad\.js/);
+    await chmod(unreadablePath, 0o644);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

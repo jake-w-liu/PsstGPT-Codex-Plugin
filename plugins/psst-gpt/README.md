@@ -72,6 +72,7 @@ node plugins/psst-gpt/scripts/psst_gpt.mjs \
 ```
 
 If no auditable text files remain after filtering, `audit` now fails with `PSST_GPT_AUDIT_BUNDLE_EMPTY` instead of generating an empty bundle.
+Unreadable text files are skipped with a recorded reason instead of aborting the whole audit bundle.
 
 Run the deterministic preflight first when you want to know whether the current Mac/session can actually use background text relay, foreground upload relay, or both:
 
@@ -94,6 +95,7 @@ node plugins/psst-gpt/scripts/psst_gpt.mjs \
 This mode is still standalone PsstGPT. It uses the ChatGPT macOS app's own Upload file menu and native file picker. It may bring ChatGPT forward while selecting files, and if macOS Accessibility later collapses the chat into a transient shell-only state during the same wait, it may foreground ChatGPT once more to recover the usable window before continuing. It then writes `chatgpt-audit-response.md` and `chatgpt-audit-result.json` in the generated upload bundle directory.
 
 If upload bundling finds no eligible files, it now fails with `PSST_GPT_UPLOAD_BUNDLE_EMPTY` without leaving a stale output directory behind.
+Unreadable files are skipped with a recorded reason instead of aborting the whole upload bundle.
 
 Main relay commands wait indefinitely by default for ChatGPT to finish. Pass `timeoutMs` only when you want to cap a run yourself. `timeoutMs: 0` explicitly keeps the response wait unbounded. The `poll` helper remains the bounded check-in path for pending sessions, and uploads still use `uploadTimeoutMs` for the file-picker wait.
 

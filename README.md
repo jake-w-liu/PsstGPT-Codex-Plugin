@@ -183,6 +183,7 @@ node plugins/psst-gpt/scripts/psst_gpt.mjs \
 ```
 
 If every file is excluded or oversized, bundle creation now fails with `PSST_GPT_UPLOAD_BUNDLE_EMPTY` and does not leave a stale output directory behind.
+Unreadable files are skipped with a recorded reason instead of aborting the whole upload bundle.
 
 Run the automatic task router for a foreground upload audit:
 
@@ -194,6 +195,7 @@ node plugins/psst-gpt/scripts/psst_gpt.mjs \
 The upload audit workflow uploads exactly one `source-archive.zip`, then writes the returned response to `chatgpt-audit-response.md` and the structured result to `chatgpt-audit-result.json` inside the generated upload bundle directory.
 
 Strict-background text-bundle audits now fail with `PSST_GPT_AUDIT_BUNDLE_EMPTY` when no auditable text files are available, instead of generating an empty review bundle.
+Unreadable text files are skipped with a recorded reason instead of aborting the whole audit bundle.
 
 If you want to set an explicit cap instead of the default no-timeout behavior:
 
