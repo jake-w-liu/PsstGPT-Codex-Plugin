@@ -100,6 +100,7 @@ const AUDIT_EXCLUDED_DIRS = new Set([
 ]);
 const UPLOAD_EXCLUDED_DIRS = new Set([
   ...AUDIT_EXCLUDED_DIRS,
+  ".arc",
   ".parcel-cache",
   ".svelte-kit",
   ".turbo",
@@ -1392,6 +1393,7 @@ async function persistUploadAuditFailure({
       parsed: error?.parsed ?? null,
       stdout: error?.stdout ?? null,
       stderr: error?.stderr ?? null,
+      cause: serializeErrorCause(error?.cause),
     },
     bundle: {
       ...bundle,
@@ -1402,6 +1404,25 @@ async function persistUploadAuditFailure({
   };
   await writeFile(resultPath, `${JSON.stringify(enriched, null, 2)}\n`, "utf8");
   return enriched;
+}
+
+function serializeErrorCause(error) {
+  if (!error) {
+    return null;
+  }
+  return {
+    name: error.name ?? null,
+    message: error.message ?? String(error),
+    code: error.code ?? null,
+    signal: error.signal ?? null,
+    killed: error.killed ?? null,
+    errno: error.errno ?? null,
+    syscall: error.syscall ?? null,
+    path: error.path ?? null,
+    spawnargs: error.spawnargs ?? null,
+    stdout: error.stdout ?? null,
+    stderr: error.stderr ?? null,
+  };
 }
 
 async function normalizeUploadAuditResult({

@@ -791,10 +791,12 @@ test("createPsstGPTUploadBundle writes one source archive only", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "psst-gpt-upload-test-"));
   try {
     await mkdir(path.join(root, "src"), { recursive: true });
+    await mkdir(path.join(root, ".arc"), { recursive: true });
     await mkdir(path.join(root, "node_modules", "pkg"), { recursive: true });
     await writeFile(path.join(root, "src", "a.js"), `${"a".repeat(900)}\n`, "utf8");
     await writeFile(path.join(root, "src", "b.js"), `${"b".repeat(900)}\n`, "utf8");
     await writeFile(path.join(root, "README.md"), "# Demo\n", "utf8");
+    await writeFile(path.join(root, ".arc", "telemetry.jsonl"), "ignored-agent-state\n", "utf8");
     await writeFile(path.join(root, "node_modules", "pkg", "index.js"), "ignored\n", "utf8");
 
     const bundle = await createPsstGPTUploadBundle({
@@ -809,6 +811,7 @@ test("createPsstGPTUploadBundle writes one source archive only", async () => {
     assert.equal(bundle.files.some((file) => file.path === "src/b.js"), true);
     assert.equal(bundle.files.some((file) => file.path === "README.md"), true);
     assert.equal(bundle.skipped.some((entry) => entry.path === "node_modules"), true);
+    assert.equal(bundle.skipped.some((entry) => entry.path === ".arc"), true);
     assert.equal(bundle.shards.length, 1);
     assert.equal(bundle.archives.length, 1);
     assert.equal(bundle.shards[0].name, "source-archive.zip");
@@ -820,6 +823,7 @@ test("createPsstGPTUploadBundle writes one source archive only", async () => {
     assert.match(archiveListing.stdout, /src\/a\.js/);
     assert.match(archiveListing.stdout, /src\/b\.js/);
     assert.doesNotMatch(archiveListing.stdout, /upload-manifest\.json/);
+    assert.doesNotMatch(archiveListing.stdout, /\.arc\/telemetry\.jsonl/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -837,7 +841,14 @@ test("persistUploadAuditFailure writes failure artifacts once a bundle exists", 
     await writeFile(bundle.archivePath, "zip-bytes", "utf8");
 
     const failure = await __testing.persistUploadAuditFailure({
-      error: Object.assign(new Error("shell only"), { code: "PSST_GPT_WINDOW_SHELL_ONLY" }),
+      error: Object.assign(new Error("shell only"), {
+        code: "PSST_GPT_WINDOW_SHELL_ONLY",
+        cause: Object.assign(new Error("osascript timed out"), {
+          code: "ETIMEDOUT",
+          signal: "SIGTERM",
+          killed: true,
+        }),
+      }),
       bundle,
       requestedPrompt: "Audit the uploaded archive.",
       attachmentPaths: bundle.attachmentPaths,
@@ -852,6 +863,8 @@ test("persistUploadAuditFailure writes failure artifacts once a bundle exists", 
     const resultJson = JSON.parse(await readFile(failure.resultPath, "utf8"));
     assert.equal(resultJson.code, "PSST_GPT_WINDOW_SHELL_ONLY");
     assert.equal(resultJson.bundle.metadataPath.endsWith("upload-bundle.json"), true);
+    assert.equal(resultJson.error.cause.code, "ETIMEDOUT");
+    assert.equal(resultJson.error.cause.signal, "SIGTERM");
     const responseText = await readFile(failure.responsePath, "utf8");
     assert.match(responseText, /Upload Audit Failed/);
     assert.match(responseText, /shell only/i);
