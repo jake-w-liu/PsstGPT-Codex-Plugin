@@ -3518,6 +3518,8 @@ function waitForComposer(window, timeoutMs) {
 function descendants(root) {
   var output = [];
   var stack = [root];
+  var seen = {};
+  seen[nodeTraversalSignature(root)] = true;
   while (stack.length > 0 && output.length < 4000) {
     var current = stack.pop();
     var children = [];
@@ -3526,14 +3528,33 @@ function descendants(root) {
     } catch (error) {
       children = [];
     }
-    for (var index = children.length - 1; index >= 0; index -= 1) {
-      stack.push(children[index]);
-    }
     for (var outIndex = 0; outIndex < children.length; outIndex += 1) {
-      output.push(children[outIndex]);
+      var child = children[outIndex];
+      var signature = nodeTraversalSignature(child);
+      if (seen[signature]) {
+        continue;
+      }
+      seen[signature] = true;
+      output.push(child);
+      stack.push(child);
     }
   }
   return output;
+}
+
+function nodeTraversalSignature(node) {
+  var position = pointFromArray(safeArray(function() { return node.position(); }));
+  var size = sizeFromArray(safeArray(function() { return node.size(); }));
+  return [
+    safeString(function() { return node.role(); }),
+    safeString(function() { return node.subrole(); }),
+    safeString(function() { return node.name(); }),
+    safeString(function() { return node.description(); }),
+    safeString(function() { return node.value(); }),
+    safeString(function() { return node.enabled(); }),
+    position ? position.x + "," + position.y : "",
+    size ? size.width + "x" + size.height : "",
+  ].join("|");
 }
 
 function firstNode(nodes, predicate) {
