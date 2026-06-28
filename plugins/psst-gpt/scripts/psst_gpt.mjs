@@ -3464,84 +3464,96 @@ function withChatGPTApp(options, callback) {
     fail("MACOS_ACCESSIBILITY_DISABLED", "macOS Accessibility automation is not enabled for the current process.");
   }
   var frontmostBefore = frontmostProcessName(systemEvents);
-
-  var chatgpt = Application("ChatGPT");
-  var bundleId = "";
-  try {
-    bundleId = chatgpt.id();
-  } catch (error) {
-    fail("PSST_GPT_NOT_INSTALLED", "The ChatGPT desktop app is not installed or is not registered with LaunchServices.");
-  }
-  if (bundleId !== "com.openai.chat") {
-    fail("PSST_GPT_BUNDLE_MISMATCH", "The application named ChatGPT did not resolve to bundle id com.openai.chat.", {
-      bundleId: bundleId
-    });
-  }
-
-  if (options.background === false) {
-    try {
-      chatgpt.activate();
-      delay(0.5);
-    } catch (error) {
-      fail("PSST_GPT_FOREGROUND_ACTIVATE_FAILED", "Could not foreground the ChatGPT app for upload automation.");
+  var pendingForegroundRestore = options.background === false &&
+    options.restoreFrontmostOnExit === true;
+  function restoreForegroundIfNeeded() {
+    if (!pendingForegroundRestore) {
+      return;
     }
+    pendingForegroundRestore = false;
+    restoreFrontmostProcess(systemEvents, frontmostBefore);
   }
 
-  var process = systemEvents.processes.byName("ChatGPT");
-  var deadline = Date.now() + 15000;
-  var window = firstUsableWindow(process, options.requireComposer === true);
-  while ((!process.exists() || !window) && Date.now() < deadline) {
-    delay(0.25);
-    process = systemEvents.processes.byName("ChatGPT");
-    window = firstUsableWindow(process, options.requireComposer === true);
-  }
-  if ((!process.exists() || !window) && options.background === false && options.allowWindowRecovery === true) {
-    process = attemptInteractiveWindowRecovery(systemEvents, chatgpt);
-    window = firstUsableWindow(process, options.requireComposer === true);
-  }
-  if (!process.exists() || !window) {
-    var hasMenuBar = processHasMenuBar(process);
-    if (hasMenuBar) {
-      if (options.background === false) {
+  try {
+    var chatgpt = Application("ChatGPT");
+    var bundleId = "";
+    try {
+      bundleId = chatgpt.id();
+    } catch (error) {
+      fail("PSST_GPT_NOT_INSTALLED", "The ChatGPT desktop app is not installed or is not registered with LaunchServices.");
+    }
+    if (bundleId !== "com.openai.chat") {
+      fail("PSST_GPT_BUNDLE_MISMATCH", "The application named ChatGPT did not resolve to bundle id com.openai.chat.", {
+        bundleId: bundleId
+      });
+    }
+
+    if (options.background === false) {
+      try {
+        chatgpt.activate();
+        delay(0.5);
+      } catch (error) {
+        fail("PSST_GPT_FOREGROUND_ACTIVATE_FAILED", "Could not foreground the ChatGPT app for upload automation.");
+      }
+    }
+
+    var process = systemEvents.processes.byName("ChatGPT");
+    var deadline = Date.now() + 15000;
+    var window = firstUsableWindow(process, options.requireComposer === true);
+    while ((!process.exists() || !window) && Date.now() < deadline) {
+      delay(0.25);
+      process = systemEvents.processes.byName("ChatGPT");
+      window = firstUsableWindow(process, options.requireComposer === true);
+    }
+    if ((!process.exists() || !window) && options.background === false && options.allowWindowRecovery === true) {
+      process = attemptInteractiveWindowRecovery(systemEvents, chatgpt);
+      window = firstUsableWindow(process, options.requireComposer === true);
+    }
+    if (!process.exists() || !window) {
+      var hasMenuBar = processHasMenuBar(process);
+      if (hasMenuBar) {
+        if (options.background === false) {
+          fail(
+            "PSST_GPT_WINDOW_SHELL_ONLY",
+            "ChatGPT is running, but macOS Accessibility exposed only the app shell and no usable chat window. Open or relaunch ChatGPT, then rerun the relay."
+          );
+        }
         fail(
-          "PSST_GPT_WINDOW_SHELL_ONLY",
-          "ChatGPT is running, but macOS Accessibility exposed only the app shell and no usable chat window. Open or relaunch ChatGPT, then rerun the relay."
+          "PSST_GPT_WINDOW_SHELL_ONLY_BACKGROUND",
+          "ChatGPT is running, but macOS Accessibility exposed only the app shell and no usable chat window. Strict background mode will not recover that state. Open or relaunch ChatGPT, then rerun the relay."
         );
       }
-      fail(
-        "PSST_GPT_WINDOW_SHELL_ONLY_BACKGROUND",
-        "ChatGPT is running, but macOS Accessibility exposed only the app shell and no usable chat window. Strict background mode will not recover that state. Open or relaunch ChatGPT, then rerun the relay."
-      );
+      if (options.background === false) {
+        fail("PSST_GPT_WINDOW_MISSING", "No ChatGPT app window is available for foreground upload automation. Open a ChatGPT app window, then rerun the relay.");
+      }
+      fail("PSST_GPT_WINDOW_MISSING_BACKGROUND", "No ChatGPT app window is available. Strict background mode will not open, recover, or foreground a ChatGPT window. Open a ChatGPT app window manually, then rerun the relay.");
     }
-    if (options.background === false) {
-      fail("PSST_GPT_WINDOW_MISSING", "No ChatGPT app window is available for foreground upload automation. Open a ChatGPT app window, then rerun the relay.");
+
+    var context = {
+      systemEvents: systemEvents,
+      chatgpt: chatgpt,
+      process: process,
+      window: window,
+      background: options.background !== false,
+      restoreFrontmostOnExit: options.restoreFrontmostOnExit === true,
+      frontmostBefore: frontmostBefore
+    };
+
+    if (!context.background) {
+      try {
+        process.frontmost = true;
+        delay(0.3);
+      } catch (error) {
+        fail("PSST_GPT_FOREGROUND_ACTIVATE_FAILED", "Could not foreground the ChatGPT app for upload automation.");
+      }
     }
-    fail("PSST_GPT_WINDOW_MISSING_BACKGROUND", "No ChatGPT app window is available. Strict background mode will not open, recover, or foreground a ChatGPT window. Open a ChatGPT app window manually, then rerun the relay.");
-  }
 
-  var context = {
-    systemEvents: systemEvents,
-    chatgpt: chatgpt,
-    process: process,
-    window: window,
-    background: options.background !== false,
-    restoreFrontmostOnExit: options.restoreFrontmostOnExit === true,
-    frontmostBefore: frontmostBefore
-  };
-
-  if (!context.background) {
-    try {
-      process.frontmost = true;
-      delay(0.3);
-    } catch (error) {
-      fail("PSST_GPT_FOREGROUND_ACTIVATE_FAILED", "Could not foreground the ChatGPT app for upload automation.");
-    }
-  }
-
-  try {
     var result = callback(context);
     if (context.background || context.restoreFrontmostOnExit) {
-      restoreFrontmostProcess(systemEvents, frontmostBefore);
+      restoreForegroundIfNeeded();
+      if (context.background) {
+        restoreFrontmostProcess(systemEvents, frontmostBefore);
+      }
       if (context.background && result && typeof result === "object" && !Array.isArray(result)) {
         result.frontmostProcessName = frontmostProcessName(systemEvents);
         result.frontmostBefore = frontmostBefore;
@@ -3549,7 +3561,8 @@ function withChatGPTApp(options, callback) {
     }
     return result;
   } catch (error) {
-    if (context.background || context.restoreFrontmostOnExit) {
+    restoreForegroundIfNeeded();
+    if (context && (context.background || context.restoreFrontmostOnExit)) {
       restoreFrontmostProcess(systemEvents, frontmostBefore);
     }
     throw error;
@@ -4656,4 +4669,5 @@ export const __testing = {
   doctorNextStepsForError,
   ensureForegroundUploadRelayReady,
   probeDoctorRelayMode,
+  PSST_GPT_JXA,
 };

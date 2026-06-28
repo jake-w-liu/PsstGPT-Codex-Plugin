@@ -828,6 +828,11 @@ test("doctor foreground probe requests focus restoration while background probe 
   ]);
 });
 
+test("JXA foreground restore helper runs even when failure happens before context creation", () => {
+  assert.match(__testing.PSST_GPT_JXA, /var pendingForegroundRestore = options\.background === false &&\s*options\.restoreFrontmostOnExit === true;/);
+  assert.match(__testing.PSST_GPT_JXA, /catch \(error\) \{\s*restoreForegroundIfNeeded\(\);\s*if \(context && \(context\.background \|\| context\.restoreFrontmostOnExit\)\)/);
+});
+
 test("mergeSessionBackground keeps foreground workflows marked foreground-used", () => {
   assert.equal(__testing.mergeSessionBackground(undefined, undefined), true);
   assert.equal(__testing.mergeSessionBackground(true, true), true);
