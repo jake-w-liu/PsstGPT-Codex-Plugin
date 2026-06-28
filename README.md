@@ -123,7 +123,7 @@ For audit workflows, PsstGPT treats short acknowledgement-only final replies suc
 
 The main ChatGPT response wait is unbounded by default for `run`, `continue`, `task`, `audit`, and `upload-audit`. PsstGPT now waits until the ChatGPT app finishes and the Accessibility response capture stabilizes instead of cutting off long GPT Pro runs.
 
-Use `timeoutMs` only when you want to impose a cap yourself. `timeoutMs: 0` explicitly means no overall response timeout.
+Use `timeoutMs` only when you want to impose a cap yourself. `timeoutMs: 0` explicitly means no overall response timeout, including the initial response-start guard unless you separately pass `responseStartTimeoutMs`.
 
 `poll` is different: it is the bounded check-in path for pending sessions, so give it an explicit `timeoutMs` when you want a short or long polling window. File uploads still use `uploadTimeoutMs` for the native picker/upload wait, with a default of `120000` ms per file. Set `uploadTimeoutMs: 0` only if you also want the upload wait to be unbounded.
 
@@ -174,6 +174,8 @@ node plugins/psst-gpt/scripts/psst_gpt.mjs \
 ```
 
 Polling still requires the active ChatGPT window for unfinished sessions. If a stored session is already complete, `poll` can return the stored assistant response even when the original prompt is no longer visible in the app transcript.
+
+If you pass `statePath`, it must be a file path. Existing directories at that path now fail explicitly with `PSST_GPT_SESSION_STORE_PATH_INVALID`.
 
 Create a source upload bundle without sending it:
 

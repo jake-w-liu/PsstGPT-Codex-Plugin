@@ -10,6 +10,7 @@ import {
   auditPsstGPT,
   createPsstGPTAuditBundle,
   createPsstGPTUploadBundle,
+  listPsstGPTSessions,
   uploadAuditPsstGPT,
 } from "./psst_gpt.mjs";
 
@@ -168,6 +169,40 @@ test("response start guard fails only when ChatGPT accepted the prompt but never
       responseStartTimeoutMs: 90000,
     }),
     false
+  );
+});
+
+test("response start timeout defaults to disabled when the overall timeout is disabled", () => {
+  assert.equal(
+    __testing.normalizeResponseStartTimeoutMs(undefined, {
+      overallTimeoutMs: 0,
+      fallback: 90_000,
+    }),
+    0
+  );
+
+  assert.equal(
+    __testing.normalizeResponseStartTimeoutMs(undefined, {
+      overallTimeoutMs: 300_000,
+      fallback: 90_000,
+    }),
+    90_000
+  );
+
+  assert.equal(
+    __testing.normalizeResponseStartTimeoutMs(undefined, {
+      overallTimeoutMs: 0,
+      fallback: 120_000,
+    }),
+    0
+  );
+
+  assert.equal(
+    __testing.normalizeResponseStartTimeoutMs(45_000, {
+      overallTimeoutMs: 0,
+      fallback: 90_000,
+    }),
+    45_000
   );
 });
 
@@ -826,6 +861,34 @@ test("doctor foreground probe requests focus restoration while background probe 
       restoreFrontmostOnExit: true,
     },
   ]);
+});
+
+test("listPsstGPTSessions rejects a directory statePath with an explicit path error", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "psst-gpt-state-dir-"));
+  const statePath = path.join(root, "sessions");
+  try {
+    await mkdir(statePath, { recursive: true });
+    await assert.rejects(
+      listPsstGPTSessions({ statePath }),
+      { code: "PSST_GPT_SESSION_STORE_PATH_INVALID" }
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("saveAppSessionStore rejects a directory statePath with an explicit path error", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "psst-gpt-save-state-dir-"));
+  const statePath = path.join(root, "sessions");
+  try {
+    await mkdir(statePath, { recursive: true });
+    await assert.rejects(
+      __testing.saveAppSessionStore(statePath, { version: 1, sessions: [] }),
+      { code: "PSST_GPT_SESSION_STORE_PATH_INVALID" }
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test("JXA foreground restore helper runs even when failure happens before context creation", () => {

@@ -101,7 +101,7 @@ If you pass `outputDir`, it must either not exist yet or already be a readable, 
 If `outputDir` lives inside the project root, later reruns now skip prior PsstGPT-generated bundle directories instead of recursively packaging earlier bundle artifacts.
 `outputDir` must not be the same directory as the bundle root itself. That configuration now fails explicitly with `PSST_GPT_AUDIT_OUTPUT_DIR_INVALID` or `PSST_GPT_UPLOAD_OUTPUT_DIR_INVALID`.
 
-Main relay commands wait indefinitely by default for ChatGPT to finish. Pass `timeoutMs` only when you want to cap a run yourself. `timeoutMs: 0` explicitly keeps the response wait unbounded. The `poll` helper remains the bounded check-in path for pending sessions, and uploads still use `uploadTimeoutMs` for the file-picker wait.
+Main relay commands wait indefinitely by default for ChatGPT to finish. Pass `timeoutMs` only when you want to cap a run yourself. `timeoutMs: 0` explicitly keeps the response wait unbounded, including the initial response-start guard unless you separately pass `responseStartTimeoutMs`. The `poll` helper remains the bounded check-in path for pending sessions, and uploads still use `uploadTimeoutMs` for the file-picker wait.
 
 Check routing without sending:
 
@@ -118,5 +118,7 @@ node plugins/psst-gpt/scripts/psst_gpt.mjs \
 ```
 
 For complete stored sessions, `poll` can return the persisted assistant response even if the original prompt is no longer visible in the active ChatGPT transcript. Pending sessions still require the active app conversation because PsstGPT cannot reopen older conversations by URL.
+
+If you pass `statePath`, it must be a file path. Existing directories at that path now fail explicitly with `PSST_GPT_SESSION_STORE_PATH_INVALID`.
 
 Credit: PsstGPT is an independent desktop-app implementation, inspired by the original Chrome-backed [GPT Relay](https://github.com/Toolsai/GPT-Relay-Codex-Plugin-) by Prompt Case. Thanks to him for the relay concept and Codex plugin workflow.

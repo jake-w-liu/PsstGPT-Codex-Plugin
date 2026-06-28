@@ -1116,11 +1116,14 @@ async function relayPromptWithFileUploads({
     uploadTimeoutMs,
     DEFAULT_UPLOAD_TIMEOUT_MS
   );
-  const normalizedResponseStartTimeoutMs = normalizeOverallTimeoutMs(
+  const normalizedResponseStartTimeoutMs = normalizeResponseStartTimeoutMs(
     responseStartTimeoutMs,
-    normalizedUploadTimeoutMs > 0
-      ? Math.max(45_000, Math.min(normalizedUploadTimeoutMs, 120_000))
-      : DEFAULT_RESPONSE_START_TIMEOUT_MS
+    {
+      overallTimeoutMs: timeoutMs,
+      fallback: normalizedUploadTimeoutMs > 0
+        ? Math.max(45_000, Math.min(normalizedUploadTimeoutMs, 120_000))
+        : DEFAULT_RESPONSE_START_TIMEOUT_MS,
+    }
   );
   const result = await waitForAppAssistantResponseInChunks({
     prompt: promptText,
@@ -2593,13 +2596,16 @@ async function waitForAppAssistantResponse({
   allowPending,
   background,
   allowForegroundRecovery = false,
-  responseStartTimeoutMs = DEFAULT_RESPONSE_START_TIMEOUT_MS,
+  responseStartTimeoutMs,
   progress = createAssistantWaitProgress(),
 }) {
   const normalizedTimeoutMs = normalizeOverallTimeoutMs(timeoutMs, DEFAULT_TIMEOUT_MS);
-  const normalizedResponseStartTimeoutMs = normalizeOverallTimeoutMs(
+  const normalizedResponseStartTimeoutMs = normalizeResponseStartTimeoutMs(
     responseStartTimeoutMs,
-    DEFAULT_RESPONSE_START_TIMEOUT_MS
+    {
+      overallTimeoutMs: timeoutMs,
+      fallback: DEFAULT_RESPONSE_START_TIMEOUT_MS,
+    }
   );
   const start = Date.now();
   let lastState = null;
@@ -4275,12 +4281,23 @@ function filterAppSessions(sessions = [], query = "") {
 async function loadAppSessionStore(statePath) {
   const resolvedPath = getAppStatePath(statePath);
   try {
+    const pathExists = await validateSessionStorePath(resolvedPath);
+    if (!pathExists) {
+      return {
+        version: 1,
+        surface: APP_SURFACE,
+        sessions: [],
+      };
+    }
     const raw = await readFile(resolvedPath, "utf8");
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed.sessions)) {
       return parsed;
     }
   } catch (error) {
+    if (error?.code === "PSST_GPT_SESSION_STORE_PATH_INVALID") {
+      throw error;
+    }
     if (error?.code !== "ENOENT") {
       throw codedError(
         "PSST_GPT_SESSION_STORE_READ_FAILED",
@@ -4299,8 +4316,20 @@ async function loadAppSessionStore(statePath) {
 
 async function saveAppSessionStore(statePath, store) {
   const resolvedPath = getAppStatePath(statePath);
-  await mkdir(path.dirname(resolvedPath), { recursive: true });
-  await writeFile(resolvedPath, `${JSON.stringify(store, null, 2)}\n`, "utf8");
+  try {
+    await validateSessionStorePath(resolvedPath);
+    await mkdir(path.dirname(resolvedPath), { recursive: true });
+    await writeFile(resolvedPath, `${JSON.stringify(store, null, 2)}\n`, "utf8");
+  } catch (error) {
+    if (error?.code === "PSST_GPT_SESSION_STORE_PATH_INVALID") {
+      throw error;
+    }
+    throw codedError(
+      "PSST_GPT_SESSION_STORE_WRITE_FAILED",
+      "Could not write PsstGPT session store.",
+      { cause: error }
+    );
+  }
 }
 
 function getAppStatePath(statePath) {
@@ -4312,6 +4341,25 @@ function getAppStatePath(statePath) {
     return path.join(homeDir, ".codex", "psst-gpt", "app-sessions.json");
   }
   return path.join(os.tmpdir(), "psst-gpt", "app-sessions.json");
+}
+
+async function validateSessionStorePath(resolvedPath) {
+  try {
+    const targetStat = await stat(resolvedPath);
+    if (targetStat.isDirectory()) {
+      throw codedError(
+        "PSST_GPT_SESSION_STORE_PATH_INVALID",
+        `PsstGPT session store path must be a file path, not a directory: ${resolvedPath}`,
+        { statePath: resolvedPath }
+      );
+    }
+    return true;
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      return false;
+    }
+    throw error;
+  }
 }
 
 function getAccessibilityReminderPath() {
@@ -4385,6 +4433,28 @@ function normalizeOverallTimeoutMs(timeoutMs, fallback = DEFAULT_TIMEOUT_MS) {
     return fallback;
   }
   return numeric <= 0 ? 0 : Math.max(1, Math.floor(numeric));
+}
+
+function normalizeResponseStartTimeoutMs(
+  responseStartTimeoutMs,
+  {
+    overallTimeoutMs = DEFAULT_TIMEOUT_MS,
+    fallback = DEFAULT_RESPONSE_START_TIMEOUT_MS,
+  } = {}
+) {
+  const hasExplicitResponseStartTimeout = !(
+    responseStartTimeoutMs === undefined ||
+    responseStartTimeoutMs === null ||
+    responseStartTimeoutMs === ""
+  );
+  const normalizedOverallTimeoutMs = normalizeOverallTimeoutMs(
+    overallTimeoutMs,
+    DEFAULT_TIMEOUT_MS
+  );
+  if (!hasExplicitResponseStartTimeout && normalizedOverallTimeoutMs === 0) {
+    return 0;
+  }
+  return normalizeOverallTimeoutMs(responseStartTimeoutMs, fallback);
 }
 
 function normalizePositiveDurationMs(timeoutMs, fallback) {
@@ -4648,6 +4718,7 @@ export const __testing = {
   buildTextAuditTaskPrompt,
   messagesForAppRelay,
   normalizeOverallTimeoutMs,
+  normalizeResponseStartTimeoutMs,
   calculateDirectAxRelayTimeoutMs,
   parseDirectAxHelperJson,
   mergeSessionBackground,
@@ -4674,4 +4745,5 @@ export const __testing = {
   ensureForegroundUploadRelayReady,
   probeDoctorRelayMode,
   PSST_GPT_JXA,
+  saveAppSessionStore,
 };
