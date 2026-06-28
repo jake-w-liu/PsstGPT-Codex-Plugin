@@ -120,10 +120,16 @@ func children(_ element: AXUIElement) -> [AXUIElement] {
 func descendants(_ root: AXUIElement, limit: Int = 12_000) -> [AXUIElement] {
     var output: [AXUIElement] = []
     var stack = [root]
+    var seen: Set<UInt> = [UInt(CFHash(root))]
     while let current = stack.popLast(), output.count < limit {
         let items = children(current)
-        output.append(contentsOf: items)
-        stack.append(contentsOf: items.reversed())
+        for item in items {
+            let key = UInt(CFHash(item))
+            if seen.insert(key).inserted {
+                output.append(item)
+                stack.append(item)
+            }
+        }
     }
     return output
 }
