@@ -2319,6 +2319,7 @@ async function ensureChatGPTAppReady({
   verify = true,
   allowWindowRecovery = false,
   returnState = false,
+  restoreFrontmostOnExit = false,
 } = {}) {
   if (process.platform !== "darwin") {
     throw codedError(
@@ -2343,7 +2344,11 @@ async function ensureChatGPTAppReady({
   }
 
   if (verify) {
-    const readyState = await runJxa("waitReady", { background, allowWindowRecovery });
+    const readyState = await runJxa("waitReady", {
+      background,
+      allowWindowRecovery,
+      restoreFrontmostOnExit,
+    });
     if (returnState) {
       return readyState;
     }
@@ -2352,19 +2357,20 @@ async function ensureChatGPTAppReady({
   return undefined;
 }
 
-async function ensureStrictBackgroundRelayReady() {
-  await ensureChatGPTAppReady({
+async function ensureStrictBackgroundRelayReady({ ensureReady = ensureChatGPTAppReady } = {}) {
+  await ensureReady({
     background: true,
     verify: true,
     allowWindowRecovery: false,
   });
 }
 
-async function ensureForegroundUploadRelayReady() {
-  await ensureChatGPTAppReady({
+async function ensureForegroundUploadRelayReady({ ensureReady = ensureChatGPTAppReady } = {}) {
+  await ensureReady({
     background: false,
     verify: true,
     allowWindowRecovery: true,
+    restoreFrontmostOnExit: true,
   });
 }
 
@@ -3137,7 +3143,8 @@ function dispatch(action, payload) {
     return withChatGPTApp({
       background: payload.background !== false,
       allowWindowRecovery: payload.allowWindowRecovery === true,
-      requireComposer: true
+      requireComposer: true,
+      restoreFrontmostOnExit: payload.restoreFrontmostOnExit === true
     }, function(context) {
       var composer = findComposerInWindow(context.window);
       if (!composer) {
@@ -3386,6 +3393,7 @@ function withChatGPTApp(options, callback) {
     process: process,
     window: window,
     background: options.background !== false,
+    restoreFrontmostOnExit: options.restoreFrontmostOnExit === true,
     frontmostBefore: frontmostBefore
   };
 
@@ -3400,16 +3408,16 @@ function withChatGPTApp(options, callback) {
 
   try {
     var result = callback(context);
-    if (context.background) {
+    if (context.background || context.restoreFrontmostOnExit) {
       restoreFrontmostProcess(systemEvents, frontmostBefore);
-      if (result && typeof result === "object" && !Array.isArray(result)) {
+      if (context.background && result && typeof result === "object" && !Array.isArray(result)) {
         result.frontmostProcessName = frontmostProcessName(systemEvents);
         result.frontmostBefore = frontmostBefore;
       }
     }
     return result;
   } catch (error) {
-    if (context.background) {
+    if (context.background || context.restoreFrontmostOnExit) {
       restoreFrontmostProcess(systemEvents, frontmostBefore);
     }
     throw error;
@@ -4256,13 +4264,15 @@ async function probeDoctorRelayMode({
   background,
   allowWindowRecovery,
   message,
+  ensureReady = ensureChatGPTAppReady,
 }) {
   try {
-    const state = await ensureChatGPTAppReady({
+    const state = await ensureReady({
       background,
       verify: true,
       allowWindowRecovery,
       returnState: true,
+      restoreFrontmostOnExit: background === false,
     });
     return {
       name,
@@ -4395,7 +4405,7 @@ function buildDoctorResult(checks = []) {
       "Both relay modes require a usable ChatGPT chat window with an accessible composer.",
     ],
     notes: [
-      "The foreground upload preflight may briefly bring ChatGPT to the foreground.",
+      "The foreground upload preflight may briefly bring ChatGPT to the foreground, then restores the previous frontmost app after the probe.",
     ],
     nextSteps: dedupe(
       checks.flatMap((check) => Array.isArray(check.nextSteps) ? check.nextSteps : [])
@@ -4512,4 +4522,6 @@ export const __testing = {
   parseUploadVerificationHeader,
   buildDoctorResult,
   doctorNextStepsForError,
+  ensureForegroundUploadRelayReady,
+  probeDoctorRelayMode,
 };

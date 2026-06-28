@@ -764,6 +764,70 @@ test("doctor summary reports degraded readiness when only one relay path is avai
   ]);
 });
 
+test("foreground upload preflight requests focus restoration", async () => {
+  let capturedOptions = null;
+  await __testing.ensureForegroundUploadRelayReady({
+    ensureReady: async (options) => {
+      capturedOptions = options;
+    },
+  });
+  assert.deepEqual(capturedOptions, {
+    background: false,
+    verify: true,
+    allowWindowRecovery: true,
+    restoreFrontmostOnExit: true,
+  });
+});
+
+test("doctor foreground probe requests focus restoration while background probe does not", async () => {
+  const calls = [];
+  await __testing.probeDoctorRelayMode({
+    name: "strictBackgroundTextRelay",
+    background: true,
+    allowWindowRecovery: false,
+    message: "Background ready.",
+    ensureReady: async (options) => {
+      calls.push(options);
+      return {
+        title: "ChatGPT",
+        hasComposer: true,
+        background: true,
+      };
+    },
+  });
+  await __testing.probeDoctorRelayMode({
+    name: "foregroundUploadRelay",
+    background: false,
+    allowWindowRecovery: true,
+    message: "Foreground ready.",
+    ensureReady: async (options) => {
+      calls.push(options);
+      return {
+        title: "ChatGPT",
+        hasComposer: true,
+        background: false,
+      };
+    },
+  });
+
+  assert.deepEqual(calls, [
+    {
+      background: true,
+      verify: true,
+      allowWindowRecovery: false,
+      returnState: true,
+      restoreFrontmostOnExit: false,
+    },
+    {
+      background: false,
+      verify: true,
+      allowWindowRecovery: true,
+      returnState: true,
+      restoreFrontmostOnExit: true,
+    },
+  ]);
+});
+
 test("mergeSessionBackground keeps foreground workflows marked foreground-used", () => {
   assert.equal(__testing.mergeSessionBackground(undefined, undefined), true);
   assert.equal(__testing.mergeSessionBackground(true, true), true);
