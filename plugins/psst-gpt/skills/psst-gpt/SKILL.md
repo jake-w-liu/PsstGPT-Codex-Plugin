@@ -1,18 +1,18 @@
 ---
 name: psst-gpt
-description: Use when the user asks to relay a prompt through the ChatGPT macOS desktop app instead of Chrome, or explicitly says to use the ChatGPT app from Codex.
+description: Use when the user asks to relay a prompt through the ChatGPT macOS desktop app instead of Chrome, or explicitly says to use the ChatGPT app from the assistant.
 ---
 
 # PsstGPT
 
-This skill relays a Codex task to the macOS ChatGPT desktop app through Accessibility automation.
+This skill relays an assistant task to the macOS ChatGPT desktop app through Accessibility automation.
 It is separate from Chrome-backed GPT Relay and does not use the Codex Chrome extension.
 
 Credit: PsstGPT is an independent desktop-app implementation, inspired by the original Chrome-backed GPT Relay by Prompt Case. Thanks to him for the relay concept and Codex plugin workflow.
 
-When the user invokes `$psst-gpt` or selects `psst-gpt` from the slash command list, pass the remaining user text to `runPsstGPTTask`. The helper routes the task internally.
+When the user invokes `$psst-gpt` or selects `psst-gpt` from the slash command list (in Claude Code there is no `$` prefix; the skill activates when you ask for the task, or you ask for it by name), pass the remaining user text to `runPsstGPTTask`. The helper routes the task internally.
 
-Do not manually choose a transport in Codex. `runPsstGPTTask` decides:
+Do not manually choose a transport in the assistant. `runPsstGPTTask` decides:
 
 - Automatic full-file upload: requests that say or imply full codebase, full repo, all files, full upload, zip, upload, large codebase, or no truncation route to `uploadAuditPsstGPT`. A prompt such as `$psst-gpt debug audit the full codebase` routes to this path. It packages the source tree into one `source-archive.zip`, uses the direct Swift Accessibility helper to drive the native file picker, sends the audit request, verifies the upload audit header, and writes the returned response to local Markdown/JSON files.
 - Main relay commands wait with no overall response timeout by default. Set `timeoutMs` only if you want an explicit cap. `poll` is the bounded check-in path for pending sessions.
@@ -30,7 +30,7 @@ Use the helper script at `../../scripts/psst_gpt.mjs` to:
 5. Send the prompt.
 6. Wait until the assistant response is stable and fail if the capture cannot be proven complete.
 7. Store app-session metadata.
-8. Return `finalDeliveryText` to Codex.
+8. Return `finalDeliveryText` to the assistant.
 
 ## Required Setup
 
@@ -38,7 +38,7 @@ Use the helper script at `../../scripts/psst_gpt.mjs` to:
 - ChatGPT desktop app installed in `/Applications` or `~/Applications`.
 - A ChatGPT app window is already open. The helper will not open, recover, or foreground a missing window.
 - User is already signed in to the ChatGPT app.
-- macOS Accessibility automation is enabled for the process running Codex, `/usr/bin/osascript`, and `/usr/bin/swift` if macOS prompts for them.
+- macOS Accessibility automation is enabled for the process running the assistant, `/usr/bin/osascript`, and `/usr/bin/swift` if macOS prompts for them.
 
 You usually do not enable Accessibility for `ChatGPT.app` itself. The controlling host app and helper binaries are the permissions that matter.
 
@@ -168,6 +168,6 @@ nodeRepl.write(JSON.stringify(await listPsstGPTSessions({ limit: 10 }), null, 2)
 
 CRITICAL FINAL OUTPUT RULE:
 If any helper returns `status: "complete"`, `mustReturnFinalDelivery: true` or
-`mustReturnVerbatim: true`, and a non-empty `finalDeliveryText`, the Codex final answer MUST be
+`mustReturnVerbatim: true`, and a non-empty `finalDeliveryText`, the assistant's final answer MUST be
 exactly `result.finalDeliveryText`.
 Do not add a summary before it. Do not shorten it. Do not rewrite it. Do not omit lines.
